@@ -23,6 +23,7 @@ add_executable(lumacore_tests
     test_measurement_grid.cpp
     test_scene.cpp
     test_simulation.cpp
+    test_threaded_executor.cpp
 )
 target_link_libraries(lumacore_tests PRIVATE lumacore::core GTest::gtest_main)
 lumacore_set_warnings(lumacore_tests)

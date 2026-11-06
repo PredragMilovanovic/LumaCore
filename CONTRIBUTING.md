@@ -8,6 +8,8 @@ Full plan, risks and acceptance criteria: docs/plan.md.
 - `cmake --preset msvc` · `cmake --build --preset msvc-release` · `ctest --preset msvc-release`
 - `build/bin/Release/lumacore_geometry_demo.exe results/geometry_demo.bmp` (visual check of geometry)
 - `build/bin/Release/lumacore_cli.exe office` → results/office.csv → `python tools/heatmap.py results/office.csv`
+- `build/bin/Release/lumacore_bench.exe` → results/bench.csv → `python tools/plot_bench.py results/bench.csv`
+  (Release only; fails if any threaded result is not bit-identical to sequential)
 - `dotnet build managed/LumaCore.sln -c Release` (expects native DLL in build/bin/Release)
 - `python tools/heatmap.py results/grid.csv` · `python tools/plot_bench.py results/bench.csv`
 

@@ -1,6 +1,8 @@
 # LumaCore
 
-**Status:** Milestone 3 complete (87 unit tests). Next: Milestone 4 (multithreaded execution).
+**Status:** Milestone 4 complete (92 unit tests). Multithreaded execution reaches 9.9× on 24
+threads with results bit-identical to the sequential run ([benchmarks](docs/benchmarks.md)).
+Next: Milestone 5 (C API DLL and C# P/Invoke).
 
 ![Office illuminance heatmap with isolux lines, luminaires and obstacle shadows](docs/images/office_heatmap.png)
 
@@ -45,6 +47,17 @@ answer). Options: `--cell <m>` (grid spacing, default 0.05), `--border <m>` (exc
 default 0.5), `--no-shadows`, `--out <file.csv>`. The console prints E_min, E_avg, E_max,
 U0 and the run time.
 
+The CLI uses all CPU threads by default; `--threads <n>` or `--sequential` changes that.
+
+**Multithreading benchmark.** Times sequential vs 1–24 threads, checks that every result is
+bit-identical, and plots speedup and efficiency:
+
+```
+build\bin\Release\lumacore_bench.exe
+python tools\plot_bench.py results\bench.csv
+start results\bench.png
+```
+
 **Unit tests, one line per test:**
 
 ```
@@ -84,7 +97,8 @@ display shading only; real lux values come in Milestone 3.
 | `native/tests` | GoogleTest unit tests |
 | `managed/` | C# interop library, console app and tests (Milestone 5) |
 | `native/apps` | `lumacore_cli` (scenario → CSV) and `lumacore_geometry_demo` (ray-cast image) |
-| `tools/` | `heatmap.py` (isolux plot); benchmark plots in Milestone 6 |
+| `native/bench` | `lumacore_bench` (sequential vs threaded timing → CSV) |
+| `tools/` | `heatmap.py` (isolux plot), `plot_bench.py` (speedup and efficiency) |
 | `docs/` | Plan, architecture and physics notes |
 
 ## Milestones
@@ -94,7 +108,7 @@ display shading only; real lux values come in Milestone 3.
 | M1 | Repository, CMake, GoogleTest, conventions | done |
 | M2 | Vector maths and ray intersections | done |
 | M3 | Illuminance model, scene, sequential simulation | done |
-| M4 | Multithreaded execution | planned |
+| M4 | Multithreaded execution | done |
 | M5 | C API DLL and C# P/Invoke | planned |
 | M6 | Benchmarks, heatmaps, documentation | planned |
 | M7 | Optional CUDA and OpenGL | optional |

@@ -2,84 +2,36 @@
 // illuminance grid as CSV (consumed by tools/heatmap.py).
 //
 // Usage: lumacore_cli [office|single] [--cell <m>] [--border <m>] [--no-shadows]
-//                    [--out <file.csv>]
+//                    [--threads <n> | --sequential] [--out <file.csv>]
 //
-// --border: width of the band along the walls that is excluded from the calculation
-// area (default 0.5 m, the border zone used for working areas in EN 12464-1).
+// --border:  width of the band along the walls excluded from the calculation area
+//            (default 0.5 m, the border zone used for working areas in EN 12464-1).
+// --threads: worker threads, 0 = all hardware threads (default).
 
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <exception>
-#include <stdexcept>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <memory>
+#include <stdexcept>
 #include <string>
-#include <vector>
 
+#include "../common/scenarios.hpp"
 #include "lumacore/parallel/sequential_executor.hpp"
+#include "lumacore/parallel/threaded_executor.hpp"
 #include "lumacore/simulation/simulation.hpp"
 #include "lumacore/version.hpp"
 
 namespace {
 
 using lc::Vec3;
-
-struct Box {
-    Vec3 min;
-    Vec3 max;
-};
-struct Ball {
-    Vec3 center;
-    double radius;
-};
-struct Lamp {
-    Vec3 position;
-    double intensity_cd;
-};
-
-/// Scenario description kept separately from lc::Scene so it can be written to the CSV
-/// header (the Scene stores boxes only as triangles).
-struct Scenario {
-    std::string name;
-    double width_m, depth_m, height_m;
-    double workplane_m;
-    std::vector<Lamp> lamps;
-    std::vector<Box> boxes;
-    std::vector<Ball> balls;
-};
-
-Scenario office_scenario() {
-    // 6 m x 4 m x 3 m office, 2 x 3 luminaires at 2.8 m, work plane at 0.75 m
-    // (the usual desk height for office lighting calculations).
-    Scenario s{"office", 6.0, 4.0, 3.0, 0.75, {}, {}, {}};
-    for (const double y : {1.0, 3.0}) {
-        for (const double x : {1.0, 3.0, 5.0}) {
-            s.lamps.push_back({{x, y, 2.8}, 800.0});
-        }
-    }
-    s.boxes.push_back({{0.05, 2.6, 0.0}, {0.65, 3.95, 2.0}});  // tall cabinet by the wall
-    s.boxes.push_back({{2.9, 0.2, 0.0}, {3.1, 1.6, 1.6}});     // desk partition screen
-    s.balls.push_back({{4.5, 2.6, 1.9}, 0.25});                 // pendant globe (opaque)
-    return s;
-}
-
-Scenario single_scenario() {
-    // One 1000 cd source 2 m above the work plane: every point has a closed-form answer.
-    Scenario s{"single", 4.0, 4.0, 3.0, 0.75, {}, {}, {}};
-    s.lamps.push_back({{2.0, 2.0, 2.75}, 1000.0});
-    return s;
-}
-
-lc::Scene build_scene(const Scenario& sc) {
-    lc::Scene scene;
-    scene.set_room(sc.width_m, sc.depth_m, sc.height_m);
-    for (const Lamp& l : sc.lamps) scene.add_light(lc::PointLight(l.position, l.intensity_cd));
-    for (const Box& b : sc.boxes) scene.add_box(b.min, b.max);
-    for (const Ball& b : sc.balls) scene.add_sphere(lc::Sphere(b.center, b.radius));
-    return scene;
-}
+using lc::apps::Ball;
+using lc::apps::Box;
+using lc::apps::Lamp;
+using lc::apps::Scenario;
 
 void write_csv(const std::string& path, const Scenario& sc, const lc::MeasurementGrid& grid,
                const lc::SimulationResult& r, bool shadows) {
@@ -150,7 +102,7 @@ double max_relative_error_vs_analytic(const Scenario& sc, const lc::MeasurementG
 
 void print_usage() {
     std::cerr << "usage: lumacore_cli [office|single] [--cell <m>] [--border <m>] "
-                 "[--no-shadows] [--out <file.csv>]\n";
+                 "[--no-shadows] [--threads <n> | --sequential] [--out <file.csv>]\n";
 }
 
 int run(int argc, char** argv) {
@@ -158,6 +110,8 @@ int run(int argc, char** argv) {
     double cell_m = 0.05;
     double border_m = 0.5;
     bool shadows = true;
+    bool sequential = false;
+    long threads = 0;
     std::string out_path;
 
     for (int k = 1; k < argc; ++k) {
@@ -168,39 +122,44 @@ int run(int argc, char** argv) {
             border_m = std::atof(argv[++k]);
         } else if (arg == "--no-shadows") {
             shadows = false;
+        } else if (arg == "--threads" && k + 1 < argc) {
+            threads = std::atol(argv[++k]);
+        } else if (arg == "--sequential") {
+            sequential = true;
         } else if (arg == "--out" && k + 1 < argc) {
             out_path = argv[++k];
-        } else if (arg == "office" || arg == "single") {
+        } else if (lc::apps::find_scenario(arg)) {
             scenario_name = arg;
         } else {
             print_usage();
             return 2;
         }
     }
-    if (!(cell_m >= 0.005 && cell_m <= 1.0)) {
-        std::cerr << "--cell must be between 0.005 and 1.0 m\n";
+    if (threads < 0) {
+        std::cerr << "--threads must be >= 0\n";
         return 2;
     }
     if (out_path.empty()) {
         out_path = "results/" + scenario_name + ".csv";
     }
 
-    const Scenario sc = scenario_name == "single" ? single_scenario() : office_scenario();
-    if (!(border_m >= 0.0) || 2.0 * border_m >= std::min(sc.width_m, sc.depth_m)) {
-        std::cerr << "--border must be >= 0 and leave a non-empty calculation area\n";
-        return 2;
-    }
-    const lc::Scene scene = build_scene(sc);
-    const double area_w = sc.width_m - 2.0 * border_m;
-    const double area_d = sc.depth_m - 2.0 * border_m;
-    const auto nx = std::max<std::size_t>(1, static_cast<std::size_t>(std::lround(area_w / cell_m)));
-    const auto ny = std::max<std::size_t>(1, static_cast<std::size_t>(std::lround(area_d / cell_m)));
-    const lc::MeasurementGrid grid = lc::MeasurementGrid::horizontal(
-        border_m, border_m, sc.width_m - border_m, sc.depth_m - border_m, sc.workplane_m, nx, ny);
+    const Scenario sc = *lc::apps::find_scenario(scenario_name);
+    const lc::Scene scene = lc::apps::build_scene(sc);
+    const lc::MeasurementGrid grid = lc::apps::workplane_grid(sc, cell_m, border_m);
 
-    lc::SequentialExecutor executor;
+    std::unique_ptr<lc::IExecutor> executor;
+    std::string executor_label;
+    if (sequential) {
+        executor = std::make_unique<lc::SequentialExecutor>();
+        executor_label = "sequential";
+    } else {
+        auto threaded = std::make_unique<lc::ThreadedExecutor>(static_cast<std::size_t>(threads));
+        executor_label = "threaded, " + std::to_string(threaded->thread_count()) + " threads";
+        executor = std::move(threaded);
+    }
+
     const lc::SimulationJob job{scene, grid, lc::SimulationOptions{shadows}};
-    const lc::SimulationResult r = lc::simulate(job, executor);
+    const lc::SimulationResult r = lc::simulate(job, *executor);
     write_csv(out_path, sc, grid, r, shadows);
 
     std::cout << std::fixed << std::setprecision(1);
@@ -209,8 +168,7 @@ int run(int argc, char** argv) {
               << " m, work plane at " << std::setprecision(2) << sc.workplane_m << " m\n"
               << "  grid          " << grid.nx() << " x " << grid.ny() << " = "
               << grid.point_count() << " points (" << cell_m * 100.0 << " cm cells, "
-              << std::setprecision(2) << border_m << " m border zone excluded)\n"
-              << std::setprecision(1)
+              << border_m << " m border zone excluded)\n"
               << "  measured      " << r.stats.valid_points << " points ("
               << grid.point_count() - r.stats.valid_points << " inside obstacles excluded)\n"
               << "  lights        " << scene.lights().size() << ", occluders "
@@ -223,7 +181,7 @@ int run(int argc, char** argv) {
               << std::setprecision(3)
               << "  U0 = Emin/Eavg " << r.stats.uniformity_u0 << "\n"
               << std::setprecision(2)
-              << "  time          " << r.elapsed_ms << " ms (" << executor.name() << ")\n";
+              << "  time          " << r.elapsed_ms << " ms (" << executor_label << ")\n";
     if (sc.boxes.empty() && sc.balls.empty()) {
         std::cout << std::scientific << std::setprecision(2)
                   << "  max rel. error vs closed form: "

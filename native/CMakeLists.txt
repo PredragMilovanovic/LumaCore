@@ -10,6 +10,7 @@ add_library(lumacore_core STATIC
     src/scene/scene.cpp
     src/scene/measurement_grid.cpp
     src/simulation/simulation.cpp
+    src/parallel/threaded_executor.cpp
 )
 add_library(lumacore::core ALIAS lumacore_core)
 
@@ -33,7 +34,17 @@ add_executable(lumacore_geometry_demo apps/geometry_demo/main.cpp)
 target_link_libraries(lumacore_geometry_demo PRIVATE lumacore::core)
 lumacore_set_warnings(lumacore_geometry_demo)
 
+# Built-in scenarios shared by the CLI and the benchmark.
+add_library(lumacore_scenarios STATIC apps/common/scenarios.cpp)
+target_link_libraries(lumacore_scenarios PUBLIC lumacore::core)
+lumacore_set_warnings(lumacore_scenarios)
+
 # Runs a lighting scenario and writes the illuminance grid as CSV.
 add_executable(lumacore_cli apps/cli/main.cpp)
-target_link_libraries(lumacore_cli PRIVATE lumacore::core)
+target_link_libraries(lumacore_cli PRIVATE lumacore_scenarios)
 lumacore_set_warnings(lumacore_cli)
+
+# Sequential vs threaded timing; writes results/bench.csv.
+add_executable(lumacore_bench bench/main.cpp)
+target_link_libraries(lumacore_bench PRIVATE lumacore_scenarios)
+lumacore_set_warnings(lumacore_bench)
