@@ -7,6 +7,7 @@ Full plan, risks and acceptance criteria: docs/plan.md.
 - Toolchain: VS 2022 Build Tools (MSVC x64), CMake ≥ 3.24, .NET SDK 8 (targets net48), Python 3.12.
 - `cmake --preset msvc` · `cmake --build --preset msvc-release` · `ctest --preset msvc-release`
 - `build/bin/Release/lumacore_geometry_demo.exe results/geometry_demo.bmp` (visual check of geometry)
+- `build/bin/Release/lumacore_cli.exe office` → results/office.csv → `python tools/heatmap.py results/office.csv`
 - `dotnet build managed/LumaCore.sln -c Release` (expects native DLL in build/bin/Release)
 - `python tools/heatmap.py results/grid.csv` · `python tools/plot_bench.py results/bench.csv`
 
@@ -19,6 +20,8 @@ math → geometry → lighting/scene → simulation → parallel → capi (lumac
 ## Physics
 E = I·cosθ / r² [lx], I in cd, r in m. Isotropic point sources, direct light only, binary hard
 shadows, linear superposition, cosθ ≤ 0 → 0. Uniformity U0 = E_min / E_avg. See docs/physics.md.
+Grid points strictly inside a solid occluder are NaN ("not measured") and excluded from stats;
+the room is convex and its walls are not occluders.
 Do not change the model without updating docs/physics.md and the analytic tests.
 
 ## C++ conventions

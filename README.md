@@ -1,13 +1,15 @@
 # LumaCore
 
-**Status:** Milestone 2 complete (56 unit tests). Next: Milestone 3 (illuminance model and sequential simulation).
+**Status:** Milestone 3 complete (87 unit tests). Next: Milestone 4 (multithreaded execution).
+
+![Office illuminance heatmap with isolux lines, luminaires and obstacle shadows](docs/images/office_heatmap.png)
 
 LumaCore is an educational C++17 engine that computes direct illuminance (lux) from point light
 sources on a measurement grid inside a 3D room, with ray-cast shadows. The engine is exposed as a
 native Windows DLL with a C API and is used from C# (.NET Framework 4.8) through P/Invoke.
 
-It is not a commercial lighting simulator. See [docs/physics.md](docs/physics.md) (Milestone 3)
-for the model, its assumptions and its limitations.
+It is not a commercial lighting simulator. See [docs/physics.md](docs/physics.md) for the
+model (E = I·cos θ / r²), its assumptions and limits, and how each part is verified.
 
 ## Requirements
 
@@ -27,6 +29,21 @@ ctest --preset msvc-release
 GoogleTest is downloaded automatically at configure time (pinned to v1.15.2).
 
 ## Seeing the results
+
+**Lux heatmap of a room.** The CLI runs a scenario and writes a CSV; the Python script turns
+it into an isolux plot:
+
+```
+build\bin\Release\lumacore_cli.exe office
+python tools\heatmap.py results\office.csv
+start results\office.png
+```
+
+Scenarios: `office` (6 × 4 × 3 m, six 800 cd luminaires, a cabinet, a partition and a pendant
+sphere) and `single` (one 1000 cd source; the CLI also prints the error against the closed-form
+answer). Options: `--cell <m>` (grid spacing, default 0.05), `--border <m>` (excluded wall band,
+default 0.5), `--no-shadows`, `--out <file.csv>`. The console prints E_min, E_avg, E_max,
+U0 and the run time.
 
 **Unit tests, one line per test:**
 
@@ -66,7 +83,8 @@ display shading only; real lux values come in Milestone 3.
 | `native/capi` | C API, the only ABI boundary (`lumacore.dll`, Milestone 5) |
 | `native/tests` | GoogleTest unit tests |
 | `managed/` | C# interop library, console app and tests (Milestone 5) |
-| `tools/` | Python heatmap and benchmark plots (Milestone 6) |
+| `native/apps` | `lumacore_cli` (scenario → CSV) and `lumacore_geometry_demo` (ray-cast image) |
+| `tools/` | `heatmap.py` (isolux plot); benchmark plots in Milestone 6 |
 | `docs/` | Plan, architecture and physics notes |
 
 ## Milestones
@@ -75,7 +93,7 @@ display shading only; real lux values come in Milestone 3.
 |---|---|---|
 | M1 | Repository, CMake, GoogleTest, conventions | done |
 | M2 | Vector maths and ray intersections | done |
-| M3 | Illuminance model, scene, sequential simulation | planned |
+| M3 | Illuminance model, scene, sequential simulation | done |
 | M4 | Multithreaded execution | planned |
 | M5 | C API DLL and C# P/Invoke | planned |
 | M6 | Benchmarks, heatmaps, documentation | planned |

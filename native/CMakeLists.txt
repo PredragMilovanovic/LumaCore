@@ -6,6 +6,10 @@ add_library(lumacore_core STATIC
     src/geometry/shapes.cpp
     src/geometry/intersection.cpp
     src/geometry/primitives.cpp
+    src/lighting/lighting.cpp
+    src/scene/scene.cpp
+    src/scene/measurement_grid.cpp
+    src/simulation/simulation.cpp
 )
 add_library(lumacore::core ALIAS lumacore_core)
 
@@ -28,3 +32,8 @@ lumacore_set_warnings(lumacore_core)
 add_executable(lumacore_geometry_demo apps/geometry_demo/main.cpp)
 target_link_libraries(lumacore_geometry_demo PRIVATE lumacore::core)
 lumacore_set_warnings(lumacore_geometry_demo)
+
+# Runs a lighting scenario and writes the illuminance grid as CSV.
+add_executable(lumacore_cli apps/cli/main.cpp)
+target_link_libraries(lumacore_cli PRIVATE lumacore::core)
+lumacore_set_warnings(lumacore_cli)

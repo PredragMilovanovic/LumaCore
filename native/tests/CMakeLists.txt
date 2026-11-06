@@ -19,6 +19,10 @@ add_executable(lumacore_tests
     test_intersection_sphere.cpp
     test_intersection_triangle.cpp
     test_primitives.cpp
+    test_illuminance.cpp
+    test_measurement_grid.cpp
+    test_scene.cpp
+    test_simulation.cpp
 )
 target_link_libraries(lumacore_tests PRIVATE lumacore::core GTest::gtest_main)
 lumacore_set_warnings(lumacore_tests)
