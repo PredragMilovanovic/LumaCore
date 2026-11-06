@@ -1,0 +1,26 @@
+# CMake / native build output
+build/
+out/
+CMakeUserPresets.json
+
+# Visual Studio / VS Code
+.vs/
+*.user
+*.suo
+
+# .NET
+managed/**/bin/
+managed/**/obj/
+*.nupkg
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Demo output (BMP is regenerated; curated PNGs live in docs/images)
+*.bmp
+
+# Generated results (curated samples are force-added)
+results/*
+!results/.gitkeep

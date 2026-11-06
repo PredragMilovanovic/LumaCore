@@ -1,0 +1,57 @@
+# LumaCore — C++ Computational Lighting Engine
+Educational direct-illumination engine: point lights, 3D room geometry, ray-cast shadows,
+illuminance (lux) on a measurement grid. C++17 core → C ABI DLL → C# (.NET Framework 4.8) via P/Invoke.
+Full plan, risks and acceptance criteria: docs/plan.md.
+
+## Build
+- Toolchain: VS 2022 Build Tools (MSVC x64), CMake ≥ 3.24, .NET SDK 8 (targets net48), Python 3.12.
+- `cmake --preset msvc` · `cmake --build --preset msvc-release` · `ctest --preset msvc-release`
+- `build/bin/Release/lumacore_geometry_demo.exe results/geometry_demo.bmp` (visual check of geometry)
+- `dotnet build managed/LumaCore.sln -c Release` (expects native DLL in build/bin/Release)
+- `python tools/heatmap.py results/grid.csv` · `python tools/plot_bench.py results/bench.csv`
+
+## Architecture (dependencies point one way only)
+math → geometry → lighting/scene → simulation → parallel → capi (lumacore.dll) → managed (C#)
+- native/include/lumacore: public C++ headers; native/src: implementation (static lib lumacore_core)
+- native/capi: the only ABI boundary (lumacore_c.h); managed/: C# interop + console; tools/: Python
+- Executors (Sequential, Threaded, [Cuda]) implement IExecutor and share the same per-point kernel.
+
+## Physics
+E = I·cosθ / r² [lx], I in cd, r in m. Isotropic point sources, direct light only, binary hard
+shadows, linear superposition, cosθ ≤ 0 → 0. Uniformity U0 = E_min / E_avg. See docs/physics.md.
+Do not change the model without updating docs/physics.md and the analytic tests.
+
+## C++ conventions
+- C++17, MSVC /W4 /permissive- /WX /utf-8 on project targets. clang-format enforced.
+- `double` for all physics on CPU. SI units; suffix names with units where ambiguous (`intensity_cd`, `height_m`).
+- RAII everywhere; no owning raw pointers; `std::unique_ptr` for ownership, references for non-owning access.
+- Const-correct; value types are small structs; hot-path functions `noexcept`, no allocation inside loops.
+- Errors: invalid input → exceptions inside C++ (validated at construction); `std::optional` for "no hit".
+- Naming: `snake_case` functions/variables, `PascalCase` types, `lc` namespace, files `snake_case.hpp/.cpp`.
+- No global mutable state. Scene is immutable while a simulation runs.
+
+## Threading rules
+- Workers read shared state via `const&` only and write disjoint output indices. No locks in the hot path.
+- Threaded output must be bit-identical to sequential (tested). Never change per-point summation order.
+
+## Native API rules (native/capi)
+- `extern "C"`, `__cdecl`, POD/blittable types only, opaque handles with create/destroy pairs.
+- Never let a C++ exception or STL type cross the boundary: every export catches all → LcStatus.
+- No `bool` in the ABI (use int32). Caller allocates output buffers; thread-local last-error message.
+- Bump LC_API_VERSION on any ABI change; C# checks it at load.
+- C# mirrors lumacore_c.h exactly in NativeMethods.cs; x64 only; handles wrapped in SafeHandle.
+
+## Testing rules
+- Every math/geometry/lighting function gets unit tests, including degenerate and edge cases.
+- Physics validated against analytic solutions (I/h², I·h/(h²+d²)^{3/2}, superposition).
+- New code is not done until tests pass and the build is warning-free. Never assert on timings.
+
+## Milestones
+M1 skeleton+toolchain · M2 math/geometry · M3 lighting+sequential sim · M4 threading
+· M5 C API + C# · M6 bench+viz+docs · M7 (optional) CUDA/OpenGL.
+Current milestone is tracked at the top of README.md. Work one milestone at a time.
+Stretch priority after M6: EULUMDAT photometry > BVH > CUDA (float, CUDA ≥ 12.8 for sm_120) > OpenGL.
+
+## Out of scope (unless explicitly requested)
+Inter-reflections/radiosity, BVH (until stretch), GUI frameworks, services,
+extra dependencies beyond GoogleTest (and GLM only for comparison).
