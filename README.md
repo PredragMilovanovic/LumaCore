@@ -1,130 +1,160 @@
 # LumaCore
 
-**Status:** Milestone 5 complete: 102 C++ tests and 14 C# tests. The engine is usable from C#
-through `lumacore.dll` ([interop](docs/interop.md)), and multithreading reaches 9.9× on 24 threads
-with bit-identical results ([benchmarks](docs/benchmarks.md)). Next: Milestone 6 (final docs and polish).
+A C++17 engine that computes **direct illuminance (lux)** from point light sources on a
+measurement grid inside a 3D room, with ray-cast shadows. It runs sequentially or on all CPU
+cores, and it is exposed as a native Windows DLL with a C API that a **C# (.NET Framework 4.8)**
+application calls through P/Invoke.
+
+It is an educational engine, not a commercial lighting simulator: direct light only, isotropic
+sources, hard shadows. [docs/physics.md](docs/physics.md) states the model, its assumptions and
+its limits.
 
 ![Office illuminance heatmap with isolux lines, luminaires and obstacle shadows](docs/images/office_heatmap.png)
 
-LumaCore is an educational C++17 engine that computes direct illuminance (lux) from point light
-sources on a measurement grid inside a 3D room, with ray-cast shadows. The engine is exposed as a
-native Windows DLL with a C API and is used from C# (.NET Framework 4.8) through P/Invoke.
+*A 6 × 4 m office with six 800 cd luminaires, a cabinet, a partition and a pendant globe. Values
+are on the 0.75 m work plane, with the 0.5 m border zone excluded. E_avg 414 lx, U0 = 0.25.*
 
-It is not a commercial lighting simulator. See [docs/physics.md](docs/physics.md) for the
-model (E = I·cos θ / r²), its assumptions and limits, and how each part is verified.
+## Highlights
 
-## Requirements
+| | |
+|---|---|
+| **Verified numerics** | Illuminance matches the closed form I·h/(h²+d²)^{3/2} to a relative 6×10⁻¹⁶. Flux through a square matches I·Ω (exact solid angle) to within 10⁻⁴. Every ray-primitive intersection is tested at its edge cases and with seeded randomized property tests. |
+| **Parallel and deterministic** | `ThreadedExecutor` reaches **8.5× on 12 cores and 9.9× on 24 threads** (Ryzen 9 7900), and its output is **bit-identical** to the sequential run for any thread count. [Benchmarks](docs/benchmarks.md) |
+| **Clean native/managed boundary** | A plain C API (13 functions, fixed-width types, opaque handle, caller-owned buffers, no exceptions across the boundary). The C# side uses a `SafeHandle` and turns native errors into exceptions. C++ and C# produce **exactly equal** grids. [Interop](docs/interop.md) |
+| **Tested and reproducible** | 102 C++ tests (GoogleTest) and 14 C# tests (xUnit). One script builds and verifies everything from a clean checkout in about 40 s. No warnings at `/W4 /WX`. |
 
-- Visual Studio 2022 Build Tools with the "Desktop development with C++" workload (MSVC x64)
+## Quick start
+
+Requirements (Windows 10/11, x64):
+
+- Visual Studio 2022 Build Tools with **Desktop development with C++** (MSVC, Windows SDK)
 - CMake 3.24 or later
-- .NET SDK 8 (builds the net48 projects; Milestone 5)
-- Python 3.12 with numpy and matplotlib (visualization; Milestone 6)
+- .NET SDK 8 or later (it builds the .NET Framework 4.8 projects; no Visual Studio IDE needed)
+- Python 3 with `numpy` and `matplotlib` (`pip install -r tools/requirements.txt`)
 
-## Build and test
+Build, test and verify everything, then open the plots:
 
-```
-cmake --preset msvc
-cmake --build --preset msvc-release
-ctest --preset msvc-release
-```
-
-GoogleTest is downloaded automatically at configure time (pinned to v1.15.2).
-
-## Seeing the results
-
-**Lux heatmap of a room.** The CLI runs a scenario and writes a CSV; the Python script turns
-it into an isolux plot:
-
-```
-build\bin\Release\lumacore_cli.exe office
-python tools\heatmap.py results\office.csv
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Clean -Bench
 start results\office.png
 ```
 
-Scenarios: `office` (6 × 4 × 3 m, six 800 cd luminaires, a cabinet, a partition and a pendant
-sphere) and `single` (one 1000 cd source; the CLI also prints the error against the closed-form
-answer). Options: `--cell <m>` (grid spacing, default 0.05), `--border <m>` (excluded wall band,
-default 0.5), `--no-shadows`, `--out <file.csv>`. The console prints E_min, E_avg, E_max,
-U0 and the run time.
+The script stops at the first failure. It runs the native build and tests, the managed build and
+tests, the C++ CLI and the C# console, checks that their results are identical, and draws the
+heatmaps and the benchmark chart.
 
-The CLI uses all CPU threads by default; `--threads <n>` or `--sequential` changes that.
-
-**From C# (.NET Framework 4.8) through the DLL.** Build the native code first (it produces
-`lumacore.dll`), then:
+## Architecture
 
 ```
-dotnet build managed\LumaCore.sln -c Release
-dotnet test managed\LumaCore.sln -c Release --no-build
+math → geometry → lighting / scene → simulation → parallel → lumacore.dll (C API) → C# (P/Invoke)
+```
+
+- `native/` is a static C++ library (`lumacore_core`), the C API DLL (`lumacore.dll`), the tests,
+  the CLI, the benchmark and a geometry demo.
+- `managed/` is `LumaCore.Interop` (P/Invoke and an idiomatic C# API), `LumaCore.Console`, and the
+  xUnit tests.
+- Every executor calls one shared per-row kernel, so the sequential executor is the reference for
+  all the others.
+
+Diagrams, design decisions and their alternatives: [docs/architecture.md](docs/architecture.md).
+
+Using it from C#:
+
+```csharp
+using (var scene = new LightingScene())
+{
+    scene.SetRoom(6, 4, 3);
+    scene.AddPointLight(new Vec3(3, 2, 2.8), 800.0);       // position [m], intensity [cd]
+    scene.AddBox(new Vec3(2.9, 0.2, 0), new Vec3(3.1, 1.6, 1.6));
+    var grid = MeasurementGrid.Horizontal(0.5, 0.5, 5.5, 3.5, 0.75, 100, 60);
+    SimulationResult r = scene.Simulate(grid);              // all cores, shadows on
+    Console.WriteLine($"E_avg {r.AvgLux:F0} lx, U0 {r.UniformityU0:F2}");
+}
+```
+
+## Running the pieces
+
+**Lux heatmap of a room (C++):**
+
+```powershell
+build\bin\Release\lumacore_cli.exe office              # or: single
+python tools\heatmap.py results\office.csv
+```
+
+Options: `--cell <m>` (grid spacing, default 0.05), `--border <m>` (excluded band along the walls,
+default 0.5), `--no-shadows`, `--threads <n>` or `--sequential`, `--out <file.csv>`. The `single`
+scenario also prints the error against the closed-form solution.
+
+**The same calculation from C# through the DLL:**
+
+```powershell
 managed\LumaCore.Console\bin\Release\net48\LumaCore.Console.exe --csv results\office_csharp.csv
 python tools\compare_grids.py results\office.csv results\office_csharp.csv
 ```
 
-The console app runs the office scene sequentially and multithreaded, prints the statistics and
-an ASCII preview, and writes the same CSV format as the C++ CLI. `compare_grids.py` checks that
-the C# and C++ results are identical.
+**Multithreading benchmark:**
 
-**Multithreading benchmark.** Times sequential vs 1–24 threads, checks that every result is
-bit-identical, and plots speedup and efficiency:
-
-```
-build\bin\Release\lumacore_bench.exe
+```powershell
+build\bin\Release\lumacore_bench.exe                     # fails if any result is not bit-identical
 python tools\plot_bench.py results\bench.csv
-start results\bench.png
 ```
 
-**Unit tests, one line per test:**
+![Speedup and efficiency vs thread count](docs/images/bench_speedup.png)
 
-```
-ctest --preset msvc-release
-```
+**Geometry demo.** A ray-cast image built only from the intersection code:
 
-**Unit tests with GoogleTest's own output** (green `[ OK ]` / red `[ FAILED ]` lines):
-
-```
-build\bin\Release\lumacore_tests.exe
-build\bin\Release\lumacore_tests.exe --gtest_filter=RaySphere.*    # one suite
-build\bin\Release\lumacore_tests.exe --gtest_list_tests            # list all tests
-```
-
-![Geometry demo: plane, triangle-mesh box, sphere and triangle with ray-cast shadows](docs/images/geometry_demo.png)
-
-**Geometry demo image.** A small ray caster that uses only the geometry code (plane, sphere,
-triangle mesh, shadow rays) and writes a BMP that Windows opens directly:
-
-```
+```powershell
 build\bin\Release\lumacore_geometry_demo.exe results\geometry_demo.bmp
-start results\geometry_demo.bmp
 ```
 
-Optional arguments: `[output.bmp] [width] [height]` (default 960 x 600). The console prints how
-many rays hit each object, how many shadow rays were blocked, and the render time. Things to check
-in the image: straight checkerboard lines (ray-plane), no cracks along the box's face diagonals
-(watertight triangles), a round sphere, and shadows pointing away from the light. The demo uses
-display shading only; real lux values come in Milestone 3.
+**Tests only:**
 
-## Layout
+```powershell
+cmake --preset msvc
+cmake --build --preset msvc-release
+ctest --preset msvc-release
+dotnet build managed\LumaCore.sln -c Release
+dotnet test managed\LumaCore.sln -c Release --no-build
+```
+
+## Repository layout
 
 | Path | Contents |
 |---|---|
-| `native/include/lumacore`, `native/src` | C++ engine (static library `lumacore_core`) |
-| `native/capi` | C API, the only ABI boundary (`lumacore.dll`) |
-| `native/tests` | GoogleTest unit tests, including the C API |
-| `managed/` | `LumaCore.Interop` (P/Invoke, SafeHandle), `LumaCore.Console`, xUnit tests |
-| `native/apps` | `lumacore_cli` (scenario → CSV) and `lumacore_geometry_demo` (ray-cast image) |
-| `native/bench` | `lumacore_bench` (sequential vs threaded timing → CSV) |
-| `tools/` | `heatmap.py` (isolux plot), `plot_bench.py` (speedup and efficiency) |
-| `docs/` | Plan, architecture and physics notes |
+| `native/include/lumacore`, `native/src` | C++ engine: math, geometry, lighting, scene, simulation, parallel |
+| `native/capi` | C API, the only binary boundary (`lumacore.dll`) |
+| `native/tests` | GoogleTest unit, property, concurrency and C API tests |
+| `native/apps`, `native/bench` | `lumacore_cli`, `lumacore_geometry_demo`, `lumacore_bench`, shared scenarios |
+| `managed/` | `LumaCore.Interop`, `LumaCore.Console`, `LumaCore.Interop.Tests` |
+| `tools/` | `heatmap.py`, `plot_bench.py`, `compare_grids.py` |
+| `scripts/build_all.ps1` | build and verify everything |
+| `docs/` | [architecture](docs/architecture.md), [physics](docs/physics.md), [interop](docs/interop.md), [benchmarks](docs/benchmarks.md), [plan](docs/plan.md) |
 
-## Milestones
+## Limitations and next steps
+
+- **Isotropic sources.** Real luminaires have a direction-dependent intensity I(C, γ). The next
+  step is reading EULUMDAT (.ldt) or IES photometric files.
+- **Direct light only.** No inter-reflections, so values are below those in a real room with
+  light-coloured surfaces.
+- **Brute-force occlusion.** Every shadow ray tests every primitive. A bounding-volume hierarchy
+  would make large scenes fast; the benchmark is ready to measure it before and after.
+- **No GPU backend yet.** A CUDA executor would plug into the same `IExecutor` interface, with
+  results compared against the CPU reference.
+- **Deployment.** `lumacore.dll` needs the Visual C++ 2015–2022 runtime (x64) on machines without
+  Visual Studio.
+
+## Development
+
+Built milestone by milestone (plan and acceptance criteria in [docs/plan.md](docs/plan.md)):
 
 | # | Scope | Status |
 |---|---|---|
 | M1 | Repository, CMake, GoogleTest, conventions | done |
 | M2 | Vector maths and ray intersections | done |
 | M3 | Illuminance model, scene, sequential simulation | done |
-| M4 | Multithreaded execution | done |
+| M4 | Multithreaded execution and benchmark | done |
 | M5 | C API DLL and C# P/Invoke | done |
-| M6 | Benchmarks, heatmaps, documentation | planned |
-| M7 | Optional CUDA and OpenGL | optional |
+| M6 | Build-and-verify script, architecture and documentation | done |
+| M7 | Optional: EULUMDAT photometry, BVH, CUDA, OpenGL | not started |
 
-The full plan with acceptance criteria is in [docs/plan.md](docs/plan.md).
+Coding conventions and project rules: [CONTRIBUTING.md](CONTRIBUTING.md).

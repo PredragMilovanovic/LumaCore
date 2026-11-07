@@ -4,6 +4,8 @@ illuminance (lux) on a measurement grid. C++17 core → C ABI DLL → C# (.NET F
 Full plan, risks and acceptance criteria: docs/plan.md.
 
 ## Build
+- Everything, verified: `powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 [-Clean] [-Bench]`
+  (run this before declaring any change done).
 - Toolchain: VS 2022 Build Tools (MSVC x64), CMake ≥ 3.24, .NET SDK 8 (targets net48), Python 3.12.
 - `cmake --preset msvc` · `cmake --build --preset msvc-release` · `ctest --preset msvc-release`
 - `build/bin/Release/lumacore_geometry_demo.exe results/geometry_demo.bmp` (visual check of geometry)
