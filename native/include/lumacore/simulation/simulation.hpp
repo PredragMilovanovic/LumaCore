@@ -65,8 +65,22 @@ public:
 };
 
 /// Computes min / max / avg / U0 over the non-NaN values (all zero if none).
-/// Throws std::invalid_argument if `lux` is empty.
+/// Throws std::invalid_argument if there are no values.
+[[nodiscard]] IlluminanceStats compute_stats(const double* lux, std::size_t count);
 [[nodiscard]] IlluminanceStats compute_stats(const std::vector<double>& lux);
+
+/// Statistics and timing of one run written into a caller-provided buffer.
+struct RunSummary {
+    IlluminanceStats stats;
+    double elapsed_ms = 0.0;
+};
+
+/// Like simulate(), but writes the grid.point_count() values into `out` instead of
+/// allocating (used by the C API, where the caller owns the buffer).
+/// Throws std::invalid_argument for an invalid scene, a null `out`, or
+/// out_count != grid.point_count().
+[[nodiscard]] RunSummary simulate_into(const SimulationJob& job, const IExecutor& executor,
+                                       double* out, std::size_t out_count);
 
 /// Validates the scene, runs the executor, times it and computes statistics.
 /// Throws std::invalid_argument for an invalid scene.

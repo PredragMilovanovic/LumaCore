@@ -29,6 +29,19 @@ set_target_properties(lumacore_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 lumacore_set_warnings(lumacore_core)
 
+# lumacore: the C API as a shared library (lumacore.dll). It links the engine statically,
+# so no C++ types or C++ runtime state are shared with callers.
+add_library(lumacore SHARED capi/src/lumacore_c.cpp)
+add_library(lumacore::capi ALIAS lumacore)
+target_include_directories(lumacore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/capi/include)
+target_link_libraries(lumacore PRIVATE lumacore::core)
+target_compile_definitions(lumacore PRIVATE LUMACORE_BUILDING_DLL)
+set_target_properties(lumacore PROPERTIES
+    C_VISIBILITY_PRESET hidden
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON)
+lumacore_set_warnings(lumacore)
+
 # Small visual check of the geometry layer: writes a ray-cast image (BMP).
 add_executable(lumacore_geometry_demo apps/geometry_demo/main.cpp)
 target_link_libraries(lumacore_geometry_demo PRIVATE lumacore::core)

@@ -1,0 +1,18 @@
+<Project>
+  <!-- Settings shared by every managed project. -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <!-- lumacore.dll is 64-bit only: an AnyCPU/32-bit process would fail with
+         BadImageFormatException when loading it. -->
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <LangVersion>7.3</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn> <!-- XML docs required only where written -->
+    <Deterministic>true</Deterministic>
+
+    <!-- Where CMake puts the native DLL (same configuration name as the managed build). -->
+    <LumaCoreNativeDir>$(MSBuildThisFileDirectory)..\build\bin\$(Configuration)\</LumaCoreNativeDir>
+  </PropertyGroup>
+</Project>

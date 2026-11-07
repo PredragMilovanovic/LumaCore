@@ -15,6 +15,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -39,7 +40,8 @@ void write_csv(const std::string& path, const Scenario& sc, const lc::Measuremen
     if (!out) {
         throw std::runtime_error("cannot open " + path + " for writing");
     }
-    out << std::setprecision(10);
+    // max_digits10 (17): every double round-trips exactly through the text file.
+    out << std::setprecision(std::numeric_limits<double>::max_digits10);
     out << "# lumacore," << lc::version_string() << "\n";
     out << "# scenario," << sc.name << "\n";
     out << "# shadows," << (shadows ? 1 : 0) << "\n";

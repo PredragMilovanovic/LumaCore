@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>LumaCore.ConsoleApp</RootNamespace>
+    <AssemblyName>LumaCore.Console</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LumaCore.Interop\LumaCore.Interop.csproj" />
+  </ItemGroup>
+
+</Project>

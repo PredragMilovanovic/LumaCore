@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>LumaCore.Interop</RootNamespace>
+    <AssemblyName>LumaCore.Interop</AssemblyName>
+    <Description>Managed wrapper over the LumaCore native C API (lumacore.dll).</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Copied next to this assembly and, transitively, next to every project that
+         references it, so DllImport("lumacore") finds it in the application directory. -->
+    <None Include="$(LumaCoreNativeDir)lumacore.dll" Link="lumacore.dll"
+          CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="LumaCore.Interop.Tests" />
+  </ItemGroup>
+
+  <Target Name="CheckNativeLibrary" BeforeTargets="Build">
+    <Error Condition="!Exists('$(LumaCoreNativeDir)lumacore.dll')"
+           Text="lumacore.dll not found in $(LumaCoreNativeDir). Build the native code first: cmake --preset msvc, then cmake --build --preset msvc-$(Configuration.ToLowerInvariant())" />
+  </Target>
+
+</Project>

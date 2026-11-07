@@ -24,8 +24,9 @@ add_executable(lumacore_tests
     test_scene.cpp
     test_simulation.cpp
     test_threaded_executor.cpp
+    test_capi.cpp
 )
-target_link_libraries(lumacore_tests PRIVATE lumacore::core GTest::gtest_main)
+target_link_libraries(lumacore_tests PRIVATE lumacore::core lumacore::capi GTest::gtest_main)
 lumacore_set_warnings(lumacore_tests)
 
 include(GoogleTest)

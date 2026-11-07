@@ -10,7 +10,9 @@ Full plan, risks and acceptance criteria: docs/plan.md.
 - `build/bin/Release/lumacore_cli.exe office` → results/office.csv → `python tools/heatmap.py results/office.csv`
 - `build/bin/Release/lumacore_bench.exe` → results/bench.csv → `python tools/plot_bench.py results/bench.csv`
   (Release only; fails if any threaded result is not bit-identical to sequential)
-- `dotnet build managed/LumaCore.sln -c Release` (expects native DLL in build/bin/Release)
+- `dotnet build managed/LumaCore.sln -c Release` (expects native DLL in build/bin/Release; build native first)
+- `dotnet test managed/LumaCore.sln -c Release --no-build`
+- `python tools/compare_grids.py results/office.csv results/office_csharp.csv` (C++ vs C# must be exactly equal)
 - `python tools/heatmap.py results/grid.csv` · `python tools/plot_bench.py results/bench.csv`
 
 ## Architecture (dependencies point one way only)

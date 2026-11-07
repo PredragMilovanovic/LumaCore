@@ -48,12 +48,17 @@ void compute_rows(const SimulationJob& job, std::size_t row_begin, std::size_t r
 }
 
 IlluminanceStats compute_stats(const std::vector<double>& lux) {
-    if (lux.empty()) {
+    return compute_stats(lux.data(), lux.size());
+}
+
+IlluminanceStats compute_stats(const double* lux, std::size_t count) {
+    if (lux == nullptr || count == 0) {
         throw std::invalid_argument("compute_stats: no values");
     }
     IlluminanceStats s;
     double sum = 0.0;
-    for (const double e : lux) {
+    for (std::size_t k = 0; k < count; ++k) {
+        const double e = lux[k];
         if (std::isnan(e)) {
             continue;
         }
@@ -73,20 +78,34 @@ IlluminanceStats compute_stats(const std::vector<double>& lux) {
     return s;
 }
 
-SimulationResult simulate(const SimulationJob& job, const IExecutor& executor) {
+RunSummary simulate_into(const SimulationJob& job, const IExecutor& executor, double* out,
+                         std::size_t out_count) {
     job.scene.validate();
+    if (out == nullptr) {
+        throw std::invalid_argument("simulate_into: output buffer is null");
+    }
+    if (out_count != job.grid.point_count()) {
+        throw std::invalid_argument("simulate_into: output buffer must hold nx * ny values");
+    }
 
+    const auto start = std::chrono::steady_clock::now();
+    executor.run(job, out);
+    const auto stop = std::chrono::steady_clock::now();
+
+    RunSummary summary;
+    summary.elapsed_ms = std::chrono::duration<double, std::milli>(stop - start).count();
+    summary.stats = compute_stats(out, out_count);
+    return summary;
+}
+
+SimulationResult simulate(const SimulationJob& job, const IExecutor& executor) {
     SimulationResult result;
     result.nx = job.grid.nx();
     result.ny = job.grid.ny();
     result.lux.assign(job.grid.point_count(), 0.0);
-
-    const auto start = std::chrono::steady_clock::now();
-    executor.run(job, result.lux.data());
-    const auto stop = std::chrono::steady_clock::now();
-
-    result.elapsed_ms = std::chrono::duration<double, std::milli>(stop - start).count();
-    result.stats = compute_stats(result.lux);
+    const RunSummary summary = simulate_into(job, executor, result.lux.data(), result.lux.size());
+    result.stats = summary.stats;
+    result.elapsed_ms = summary.elapsed_ms;
     return result;
 }
 

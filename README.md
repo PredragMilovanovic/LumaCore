@@ -1,8 +1,8 @@
 # LumaCore
 
-**Status:** Milestone 4 complete (92 unit tests). Multithreaded execution reaches 9.9× on 24
-threads with results bit-identical to the sequential run ([benchmarks](docs/benchmarks.md)).
-Next: Milestone 5 (C API DLL and C# P/Invoke).
+**Status:** Milestone 5 complete: 102 C++ tests and 14 C# tests. The engine is usable from C#
+through `lumacore.dll` ([interop](docs/interop.md)), and multithreading reaches 9.9× on 24 threads
+with bit-identical results ([benchmarks](docs/benchmarks.md)). Next: Milestone 6 (final docs and polish).
 
 ![Office illuminance heatmap with isolux lines, luminaires and obstacle shadows](docs/images/office_heatmap.png)
 
@@ -49,6 +49,20 @@ U0 and the run time.
 
 The CLI uses all CPU threads by default; `--threads <n>` or `--sequential` changes that.
 
+**From C# (.NET Framework 4.8) through the DLL.** Build the native code first (it produces
+`lumacore.dll`), then:
+
+```
+dotnet build managed\LumaCore.sln -c Release
+dotnet test managed\LumaCore.sln -c Release --no-build
+managed\LumaCore.Console\bin\Release\net48\LumaCore.Console.exe --csv results\office_csharp.csv
+python tools\compare_grids.py results\office.csv results\office_csharp.csv
+```
+
+The console app runs the office scene sequentially and multithreaded, prints the statistics and
+an ASCII preview, and writes the same CSV format as the C++ CLI. `compare_grids.py` checks that
+the C# and C++ results are identical.
+
 **Multithreading benchmark.** Times sequential vs 1–24 threads, checks that every result is
 bit-identical, and plots speedup and efficiency:
 
@@ -93,9 +107,9 @@ display shading only; real lux values come in Milestone 3.
 | Path | Contents |
 |---|---|
 | `native/include/lumacore`, `native/src` | C++ engine (static library `lumacore_core`) |
-| `native/capi` | C API, the only ABI boundary (`lumacore.dll`, Milestone 5) |
-| `native/tests` | GoogleTest unit tests |
-| `managed/` | C# interop library, console app and tests (Milestone 5) |
+| `native/capi` | C API, the only ABI boundary (`lumacore.dll`) |
+| `native/tests` | GoogleTest unit tests, including the C API |
+| `managed/` | `LumaCore.Interop` (P/Invoke, SafeHandle), `LumaCore.Console`, xUnit tests |
 | `native/apps` | `lumacore_cli` (scenario → CSV) and `lumacore_geometry_demo` (ray-cast image) |
 | `native/bench` | `lumacore_bench` (sequential vs threaded timing → CSV) |
 | `tools/` | `heatmap.py` (isolux plot), `plot_bench.py` (speedup and efficiency) |
@@ -109,7 +123,7 @@ display shading only; real lux values come in Milestone 3.
 | M2 | Vector maths and ray intersections | done |
 | M3 | Illuminance model, scene, sequential simulation | done |
 | M4 | Multithreaded execution | done |
-| M5 | C API DLL and C# P/Invoke | planned |
+| M5 | C API DLL and C# P/Invoke | done |
 | M6 | Benchmarks, heatmaps, documentation | planned |
 | M7 | Optional CUDA and OpenGL | optional |
 
