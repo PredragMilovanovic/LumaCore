@@ -4,6 +4,8 @@
 #include <stdexcept>
 
 #include "lumacore/geometry/intersection.hpp"
+#include "lumacore/geometry/primitives.hpp"
+#include "lumacore/simulation/simulation.hpp"
 #include "test_helpers.hpp"
 
 using lc::Ray;
@@ -100,6 +102,39 @@ TEST(RayTriangle, ObliqueRayOutsideTriangleMissesButHitsPlane) {
     ASSERT_TRUE(plane_hit.has_value());
     EXPECT_NEAR(plane_hit->point.x, 0.5 + 0.1 * 9.0 / 2.3, 1e-12);
     EXPECT_NEAR(plane_hit->point.y, 0.5 + 0.2 * 9.0 / 2.3, 1e-12);
+}
+
+TEST(RayTriangle, SharedDiagonalOfAQuadIsWatertight) {
+    // A ray exactly through the edge two triangles share must hit at least one of them. Without
+    // a tolerance, rounding can put the computed barycentric (u, v) just outside BOTH triangles,
+    // and light leaks through the crack (found by tools/web_check.mjs: a floor point straight
+    // below a box, lamp straight above, received light through the box's face diagonals).
+    lc::test::Random rng(5);
+    int misses = 0;
+    for (int k = 0; k < 2000; ++k) {
+        const Vec3 lo = rng.vec(-3, 3);
+        const Vec3 hi = lo + Vec3{rng.uniform(0.1, 2.0), rng.uniform(0.1, 2.0), 0.0};
+        const auto tris = lc::quad_triangles(lo, Vec3{hi.x, lo.y, lo.z}, hi, Vec3{lo.x, hi.y, lo.z});
+        const Vec3 on_diagonal = lo + (hi - lo) * rng.uniform(0.01, 0.99);
+        const Ray ray = Ray::from_unit_direction(on_diagonal + Vec3{0, 0, 1}, Vec3{0, 0, -1});
+        if (!lc::intersect(ray, tris[0], 0.0, kInf) && !lc::intersect(ray, tris[1], 0.0, kInf)) {
+            ++misses;
+        }
+    }
+    EXPECT_EQ(misses, 0) << "rays slipped through the shared diagonal";
+}
+
+TEST(RayTriangle, BoxBlocksTheRayThroughItsFaceDiagonals) {
+    // The exact case from the web check: the vertical ray through (0, 0) crosses both the bottom
+    // and the top face of the box exactly on their diagonals.
+    lc::Scene scene;
+    scene.add_light(lc::PointLight(Vec3{0, 0, 3}, 900.0));
+    scene.add_box(Vec3{-0.5, -0.5, 1.0}, Vec3{0.5, 0.5, 2.0});
+    for (const double z : {0.0, 0.002, 0.5}) {
+        EXPECT_EQ(lc::illuminance_at(scene, Vec3{0, 0, z}, Vec3{0, 0, 1}, true), 0.0) << "z = " << z;
+    }
+    scene.build_acceleration();
+    EXPECT_EQ(lc::illuminance_at(scene, Vec3{0, 0, 0.002}, Vec3{0, 0, 1}, true), 0.0) << "with BVH";
 }
 
 TEST(RayTriangle, BarycentricSamplesInsideHitAndOutsideMiss_Randomized) {

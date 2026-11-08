@@ -146,6 +146,21 @@ identical numbers. With EULUMDAT luminaires the values agree within 4 × 10⁻¹
 direction-to-angle conversion uses `atan2`/`acos`, whose last bit MSVC's and Emscripten's maths
 libraries may round differently. That comparison runs with `--rel-tol 1e-12`.
 
+## Checks of the web engine and its geometry
+
+`tools/web_check.mjs` runs in Node.js with the same modules as the page (`scene.js`,
+`furniture.js`, `surfaces.js` and the WebAssembly engine) and is part of `build_all.ps1 -Web`:
+
+| Check | Result |
+|---|---|
+| Energy conservation: in a closed, empty room, Σ E·A over all six surfaces = luminaire flux | isotropic 1000 cd: 12,566.6 vs 12,566.4 lm (0.001 %); EULUMDAT linear luminaire: 3,200.1 vs 3,200.0 lm (0.003 %) |
+| Shadows on surfaces | 0 lx under a box, the closed form beside it |
+| Luminaire rotation | 90° swaps the along/across values exactly |
+| Furniture rule: no work-plane point enclosed by an item's shadow triangles | 0 enclosed points of 100,000+ (1 cm grids, every catalogue item) |
+| Solid boxes, tessellation, merged vertices, evaluation points | area, winding, colours and positions preserved |
+| Built-in scenes | every item inside its room; reference office 414.379 lx; furnished office task areas 564 lx, U0 0.53 |
+| Dark points of the furnished office | all 19 explained: 18 in the strip behind a chair backrest, 1 inside a plant's foliage |
+
 ## Run locally
 
 ES modules do not load from `file://`, so serve the folder:

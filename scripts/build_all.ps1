@@ -104,6 +104,12 @@ if ($Web) {
     Step 'Compare C++ and WebAssembly grids (must be exactly equal)' {
         python tools\compare_grids.py results\office.csv results\office_wasm.csv
     }
+    Step 'Web checks: energy conservation, surfaces, furniture rules, scenes (Node.js)' {
+        $nodeExe = Get-ChildItem (Join-Path $env:USERPROFILE 'emsdk\node') -Filter node.exe -Recurse -Depth 2 `
+            -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+        if (-not $nodeExe) { $nodeExe = 'node' }
+        & $nodeExe tools\web_check.mjs
+    }
     Step 'Compare C++ and WebAssembly with EULUMDAT luminaires (last-bit tolerance)' {
         .\build\bin\Release\lumacore_cli.exe office --ldt samples\ldt\linear_batwing.ldt --out results\office_linear_batwing.csv | Out-Null
         if ($LASTEXITCODE -eq 0) {

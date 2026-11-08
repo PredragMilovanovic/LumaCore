@@ -93,7 +93,9 @@ sequenceDiagram
 | Interop (C#) | struct layouts, closed-form values through P/Invoke, errors, dispose, 2000 create/destroy cycles | 14 |
 | End to end | C++ CLI vs C# console: identical grids (`tools/compare_grids.py`) | 1 script |
 | BVH (C++) | any-hit = brute force for 20,000 random rays, rays at corners and edges, axis-parallel rays; whole simulation bit-identical with and without the tree | 6 |
+| Watertightness (C++) | rays exactly through a quad's shared diagonal always hit; a box blocks the ray through its face diagonals | 2 |
 | WebAssembly (Node.js) | closed form, error values, sample-file flux, office grids vs native C++ | `tools/wasm_check.mjs` |
-| **Total** | | **121 C++ + 14 C#** |
+| Web engine and geometry (Node.js) | energy conservation in a closed room (isotropic, EULUMDAT), shadows and rotation on surfaces, the furniture rule on 100,000+ points, solid boxes, tessellation and merged vertices, scenes inside their rooms, furnished-office regression values, every dark point explained | `tools/web_check.mjs`, 19 checks |
+| **Total** | | **123 C++ + 14 C# + Node.js checks** |
 
 Everything runs with one command: `scripts\build_all.ps1 -Clean`.

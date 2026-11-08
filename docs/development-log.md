@@ -97,7 +97,21 @@ These came from checking results against expectations, not from the compiler.
     chunked evaluation keeps the page responsive. Measured, not estimated: 9.6 µs per point in
     WebAssembly for this scene.
 
-14. **Smaller issues caught before committing.**
+14. **A review added a test suite for the web engine, and its first failures were the tests' own (M7f).**
+    - "Light leaks through a box": the test read a result *after* the next engine call had
+      overwritten it (the binding returns a view into WebAssembly memory, valid until the next
+      call, as its comment says). Copying the result fixed it. The investigation added two C++
+      tests for rays exactly through a triangle pair's shared diagonal; both pass.
+    - The furnished scene's regression values differed from the page: two plants' leaves reached
+      past the walls, so the page silently moved them on load. The plants now fit, a check makes
+      every built-in scene valid as written, and page and checks show the same 527.754 lx.
+    - Instead of only counting dark points, the check now locates them: 18 behind chair backrests,
+      1 inside a plant's foliage, 0 unexplained.
+    - Energy conservation in a closed room holds to 0.001 % (isotropic) and 0.003 % (EULUMDAT).
+    - Also fixed: changing a lamp while a whole-room evaluation was still running could finish it
+      with a mix of old and new lamps; every new run now cancels a running evaluation.
+
+15. **Smaller issues caught before committing.**
    A `const` executor object without a user-provided constructor, missing standard headers, and a
    headless browser serving a cached `app.js` were each caught and fixed before they reached a commit.
 

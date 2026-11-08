@@ -52,7 +52,8 @@ Shadows under the desks, chairs and plants are calculated, not drawn by the grap
 | **Real luminaire data** | Reads **EULUMDAT (.ldt)** photometry: all five symmetry types, bilinear interpolation in C and γ, rotation of the luminaire. Verified by integrating the distribution: luminaire flux = lamp flux × LOR within 0.1 %. |
 | **One engine, three platforms** | The unchanged C++ sources also compile to **WebAssembly** (Clang, `-Wall -Wextra -Werror`). Native C++, C# through the DLL, and the browser produce **bit-identical** results for isotropic sources, and agree to the last bit's rounding (4 × 10⁻¹⁶) with photometric luminaires, where MSVC's and Emscripten's `atan2`/`acos` may round differently. |
 | **Fast shadows (BVH)** | A bounding volume hierarchy over the occluder triangles makes shadow tests logarithmic: **159× faster at 12,000 triangles and 274× at 48,000**, with results bit-identical to testing every triangle (tested with 20,000 random rays plus edge, vertex and axis-parallel cases). [Benchmarks](docs/benchmarks.md) |
-| **Tested and reproducible** | 121 C++ tests (GoogleTest) and 14 C# tests (xUnit). One script builds and verifies everything from a clean checkout in about 40 s. No warnings at `/W4 /WX`. |
+| **Energy is conserved** | In a closed room, the light computed on all six surfaces adds up to the luminaire's flux: 12,566.6 lm vs 4π·1000 = 12,566.4 lm for an isotropic lamp (0.001 %), 3,200.1 lm vs 3,200.0 lm for an EULUMDAT luminaire (0.003 %). |
+| **Tested and reproducible** | 123 C++ tests (GoogleTest), 14 C# tests (xUnit), and 19 Node.js checks of the web engine and its geometry. One script builds and verifies everything from a clean checkout in about 40 s. No warnings at `/W4 /WX`. |
 
 ## Quick start
 
@@ -170,9 +171,9 @@ dotnet test managed\LumaCore.sln -c Release --no-build
 | `native/tests` | GoogleTest unit, property, concurrency and C API tests |
 | `native/apps`, `native/bench` | `lumacore_cli`, `lumacore_geometry_demo`, `lumacore_bench`, shared scenarios |
 | `managed/` | `LumaCore.Interop`, `LumaCore.Console`, `LumaCore.Interop.Tests` |
-| `native/wasm`, `web/` | WebAssembly bindings and the 3D browser front end (`index.html`, `app.js`, `furniture.js`, generated `lumacore.js`) |
+| `native/wasm`, `web/` | WebAssembly bindings and the 3D browser front end (`app.js`; `scene.js`, `furniture.js`, `surfaces.js` without DOM, so Node.js can test them; generated `lumacore.js`) |
 | `samples/ldt` | synthetic EULUMDAT luminaires (downlight, spot, linear), made by `tools/make_sample_ldt.py` |
-| `tools/` | `heatmap.py`, `plot_bench.py`, `compare_grids.py`, `wasm_check.mjs`, `make_sample_ldt.py` |
+| `tools/` | `heatmap.py`, `plot_bench.py`, `compare_grids.py`, `wasm_check.mjs`, `web_check.mjs`, `make_sample_ldt.py` |
 | `scripts/build_all.ps1` | build and verify everything |
 | `docs/` | [architecture](docs/architecture.md), [physics](docs/physics.md), [interop](docs/interop.md), [benchmarks](docs/benchmarks.md), [web](docs/web.md), [development log](docs/development-log.md), [plan](docs/plan.md) |
 

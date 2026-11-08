@@ -7,12 +7,14 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import createLumaCore from './lumacore.js';
 import { CATALOG, itemGeometry, placePoints, placedSolid } from './furniture.js';
 import { tessellate, flatNormals, evaluationPoints, uniqueVertices } from './surfaces.js';
+import {
+  ISOTROPIC, newLamp, referenceScene, furnishedScene, isSolidItem, furnitureForEngine, footprint, TASK_TARGET, taskStats,
+} from './scene.js';
 
 // ---- Constants ----------------------------------------------------------------------------
 
 const BORDER = 0.5;          // excluded band along the walls (EN 12464-1 border zone)
 const LAMP_BELOW_CEILING = 0.2;
-const ISOTROPIC = -1;        // luminaire id of an isotropic point source
 const SAMPLE_LDT = ['downlight_wide', 'spot_narrow', 'linear_batwing'];
 const MAX_MODEL_TRIANGLES = 300000;
 
@@ -79,61 +81,15 @@ for (const key of SAMPLE_LDT) { // sequential: stable ids and menu order
 }
 const lumOr = (key) => idByKey[key] ?? ISOTROPIC;
 
-// ---- Scenes -------------------------------------------------------------------------------
+// ---- Scenes (definitions in scene.js, shared with tools/web_check.mjs) --------------------
 
-const newLamp = (x, y, extra = {}) => ({ x, y, z: 2.8, lum: ISOTROPIC, cd: 800, dimming: 1, rotation: 0, ...extra });
-
-/// The office of native/apps/common/scenarios.cpp: results match the C++ engine bit for bit.
-/// Boxes keep their exact corners (x0..x1, y0..y1, height h) for that reason.
-function referenceScene() {
-  return {
-    room: { width: 6, depth: 4, height: 3 },
-    lamps: [[1, 1], [3, 1], [5, 1], [1, 3], [3, 3], [5, 3]].map(([x, y]) => newLamp(x, y)),
-    obstacles: [
-      { kind: 'box', x0: 0.05, y0: 2.6, x1: 0.65, y1: 3.95, h: 2.0 }, // cabinet
-      { kind: 'box', x0: 2.9, y0: 0.2, x1: 3.1, y1: 1.6, h: 1.6 },    // partition
-      { kind: 'sphere', x: 4.5, y: 2.6, z: 1.9, r: 0.25 },            // pendant globe
-    ],
-    furniture: [],
-  };
-}
-
-/// An 8 x 6 m open-plan office: 4 x 3 linear luminaires (about 44,000 lm for 48 m²; 500 lx needs
-/// roughly that with direct light only), two dimmed downlights over the meeting table, four
-/// workstations, partitions, shelves, a cabinet and plants. The desk rows of luminaires hang over
-/// the working zones, on the user's side of the monitors: luminaires behind a screen are blocked
-/// by it (this layout was chosen by comparing alternatives on the task-area values).
-function furnishedScene() {
-  const linear = { lum: lumOr('linear_batwing'), dimming: 1.15 };
-  const down = { lum: lumOr('downlight_wide'), dimming: 0.6 };
-  const grid = [];
-  for (const y of [1.2, 3.0, 4.8]) for (const x of [0.9, 2.55, 4.2, 7.2]) grid.push(newLamp(x, y, linear));
-  return {
-    room: { width: 8, depth: 6, height: 3 },
-    lamps: [...grid, newLamp(6.6, 2.4, down), newLamp(6.6, 3.6, down)],
-    obstacles: [],
-    furniture: [
-      { type: 'workstation', x: 1.6, y: 1.6, rotation: 0 },
-      { type: 'workstation', x: 3.5, y: 1.6, rotation: 0 },
-      { type: 'workstation', x: 1.6, y: 4.4, rotation: 180 },
-      { type: 'workstation', x: 3.5, y: 4.4, rotation: 180 },
-      { type: 'partition', x: 1.6, y: 3.0, rotation: 0 },
-      { type: 'partition', x: 3.5, y: 3.0, rotation: 0 },
-      { type: 'meeting', x: 6.6, y: 3.0, rotation: 0 },
-      { type: 'bookshelf', x: 5.2, y: 5.8, rotation: 0 }, // back against the wall, books facing the room
-      { type: 'bookshelf', x: 6.2, y: 5.8, rotation: 0 },
-      { type: 'cabinet', x: 0.26, y: 3.0, rotation: 90 },
-      { type: 'plant', x: 0.45, y: 0.45, rotation: 0 },
-      { type: 'plant', x: 7.55, y: 0.45, rotation: 40 },
-      { type: 'plant', x: 4.55, y: 3.0, rotation: 80 },
-    ],
-  };
-}
-
-const SCENES = { furnished: furnishedScene, reference: referenceScene };
+const SCENES = {
+  furnished: () => furnishedScene({ linear: lumOr('linear_batwing'), down: lumOr('downlight_wide') }),
+  reference: referenceScene,
+};
 
 const state = {
-  ...furnishedScene(),
+  ...SCENES.furnished(),
   sel: { kind: 'lamp', index: 0 }, // { kind: 'lamp' | 'obstacle' | 'furniture', index } or null
   workplane: 0.75,
   cell: 0.05,
@@ -169,22 +125,9 @@ function resizeBox(o, w, d) {
 }
 
 const itemDef = (item) => (item.type === 'model' ? models.get(item.modelId) : itemGeometry(item.type));
-const isSolidItem = (item) => item.type !== 'model' && !!CATALOG[item.type]?.solid;
-
-/// Footprint of a placed item relative to its position: { minX, maxX, minY, maxY }.
-function footprint(item) {
-  const [x0, y0, , x1, y1] = itemDef(item).bounds;
-  const a = (item.rotation * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
-  const xs = [], ys = [];
-  for (const [x, y] of [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]) {
-    xs.push(c * x - s * y);
-    ys.push(s * x + c * y);
-  }
-  return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
-}
 
 function clampItem(item) {
-  const f = footprint(item), { width, depth } = state.room;
+  const f = footprint(itemDef(item).bounds, item.rotation), { width, depth } = state.room;
   item.x = f.maxX - f.minX >= width ? width / 2 - (f.minX + f.maxX) / 2 : clamp(item.x, -f.minX, width - f.maxX);
   item.y = f.maxY - f.minY >= depth ? depth / 2 - (f.minY + f.maxY) / 2 : clamp(item.y, -f.minY, depth - f.maxY);
 }
@@ -223,6 +166,7 @@ function fitToRoom() {
 // ---- Simulation ---------------------------------------------------------------------------
 
 let last = null;   // latest successful run: { ..., lux: Float64Array, grid }
+let surfaceGeneration = 0; // bumped by every new run; a running whole-room evaluation checks it
 let notice = '';   // persistent message (e.g. an unreadable share link), shown after each run
 let geometryDirty = true;  // engine geometry must be re-sent
 let litDirty = true;       // whole-room surface meshes must be rebuilt
@@ -246,12 +190,13 @@ function syncGeometry() {
     else engine.addSphere(o.x, o.y, o.z, o.r);
   }
   for (const item of state.furniture) {
-    if (isSolidItem(item)) {
-      engine.addBox(...placedSolid(CATALOG[item.type].solid, item.x, item.y, item.rotation));
-    } else {
-      const def = itemDef(item); // catalogue items: shadow-casting subset; models: every triangle
-      engine.addTriangles(placePoints(def.shadowPositions ?? def.local, item.x, item.y, item.rotation));
+    if (item.type === 'model') { // imported models: every triangle casts shadows
+      engine.addTriangles(placePoints(models.get(item.modelId).local, item.x, item.y, item.rotation));
+      continue;
     }
+    const geometry = furnitureForEngine(item); // same rule as tools/web_check.mjs
+    if (geometry.box) engine.addBox(...geometry.box);
+    else engine.addTriangles(geometry.triangles);
   }
   geometryDirty = false;
 }
@@ -277,6 +222,9 @@ function compute() {
   showStats();
   requestRender();
   document.body.dataset.avgLux = r.avgLux.toFixed(3); // for automated checks
+  // Lights or geometry changed: a whole-room evaluation still running is now stale. Cancel it
+  // rather than let it finish its remaining chunks with the new lights (a mixed result).
+  ++surfaceGeneration;
   if (isRoomView()) scheduleSurfaces();
 }
 
@@ -520,15 +468,32 @@ const WARM = [1.0, 0.96, 0.88];
 
 const linearRgb = (hex) => { const c = new THREE.Color().setHex(hex); return [c.r, c.g, c.b]; };
 
-function addPatch(geometry, points, normals, index, albedo) {
+function addPatch(geometry, points, normals, index, albedo, label) {
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(index.length * 3).fill(0.5), 3));
-  litGroup.add(new THREE.Mesh(geometry, litMat));
-  litPatches.push({ geometry, points, normals, index, albedo });
+  const patch = { geometry, points, normals, index, albedo, label, lux: null };
+  const mesh = new THREE.Mesh(geometry, litMat);
+  mesh.userData.patch = patch; // for the hover read-out
+  litGroup.add(mesh);
+  litPatches.push(patch);
+}
+
+/// Illuminance at a hovered point of a whole-room surface: the computed values at the hit
+/// triangle's corners, interpolated barycentrically.
+function surfaceLuxAt(hit) {
+  const patch = hit.object.userData.patch;
+  if (!patch?.lux || !hit.face) return null;
+  const pos = patch.geometry.attributes.position;
+  const corners = [hit.face.a, hit.face.b, hit.face.c];
+  const [A, B, C] = corners.map((v) => new THREE.Vector3().fromBufferAttribute(pos, v));
+  const w = new THREE.Triangle(A, B, C).getBarycoord(hit.point, new THREE.Vector3());
+  const values = corners.map((v) => patch.lux[patch.index[v]]);
+  if (values.some(Number.isNaN)) return { label: patch.label, lux: NaN };
+  return { label: patch.label, lux: w.x * values[0] + w.y * values[1] + w.z * values[2] };
 }
 
 /// Triangles in world coordinates (flat non-indexed) with one sRGB colour per triangle (or one for
 /// all) -> tessellated patch; shared vertices are evaluated once.
-function addTrianglePatch(world, colors, solid = null) {
+function addTrianglePatch(world, colors, solid = null, label = 'surface') {
   const big = world.length / 9 > 60000; // big imported models are finely tessellated already
   const perTriangle = Array.isArray(colors);
   const tess = big ? world : tessellate(world, SURFACE_EDGE, 9, perTriangle ? colors : null);
@@ -545,11 +510,11 @@ function addTrianglePatch(world, colors, solid = null) {
     if (!cache.has(hex)) cache.set(hex, linearRgb(hex));
     albedo.set(cache.get(hex), v * 3);
   }
-  addPatch(geometry, unique.points, unique.normals, unique.index, albedo);
+  addPatch(geometry, unique.points, unique.normals, unique.index, albedo, label);
 }
 
 /// A flat rectangle as an indexed grid: one evaluation per vertex, smoothly interpolated.
-function addGridPatch(width, height, transform, hex) {
+function addGridPatch(width, height, transform, hex, label) {
   const geometry = new THREE.PlaneGeometry(width, height,
     Math.max(1, Math.round(width / SURFACE_GRID)), Math.max(1, Math.round(height / SURFACE_GRID)));
   geometry.applyMatrix4(transform);
@@ -560,7 +525,7 @@ function addGridPatch(width, height, transform, hex) {
   const albedo = new Float32Array(count * 3);
   const rgb = linearRgb(hex);
   for (let k = 0; k < count; ++k) albedo.set(rgb, k * 3);
-  addPatch(geometry, points, normals, index, albedo);
+  addPatch(geometry, points, normals, index, albedo, label);
 }
 
 function buildLit() {
@@ -568,17 +533,17 @@ function buildLit() {
   litPatches = [];
   const { width, depth, height } = state.room;
   const T = (x, y, z) => new THREE.Matrix4().makeTranslation(x, y, z);
-  addGridPatch(width, depth, T(width / 2, depth / 2, 0), ALBEDO.floor);                         // floor, facing +z
+  addGridPatch(width, depth, T(width / 2, depth / 2, 0), ALBEDO.floor, 'floor');               // facing +z
   addGridPatch(width, height, T(width / 2, depth, height / 2)
-    .multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2)), ALBEDO.wall);                     // back wall, facing -y
+    .multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2)), ALBEDO.wall, 'back wall');       // facing -y
   addGridPatch(depth, height, T(width, depth / 2, height / 2)
     .multiply(new THREE.Matrix4().makeRotationZ(-Math.PI / 2))
-    .multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2)), ALBEDO.wall);                     // side wall, facing -x
+    .multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2)), ALBEDO.wall, 'side wall');       // facing -x
   for (const mesh of obstacleMeshes) {
     mesh.updateMatrixWorld(true);
     const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
     g.applyMatrix4(mesh.matrixWorld);
-    addTrianglePatch(Float64Array.from(g.attributes.position.array), ALBEDO.obstacle);
+    addTrianglePatch(Float64Array.from(g.attributes.position.array), ALBEDO.obstacle, null, 'obstacle');
     g.dispose();
   }
   for (const item of state.furniture) {
@@ -586,7 +551,8 @@ function buildLit() {
     const local = isModel ? models.get(item.modelId).local : itemGeometry(item.type).positions;
     const colors = isModel ? ALBEDO.model : itemGeometry(item.type).colors;
     const solid = isSolidItem(item) ? placedSolid(CATALOG[item.type].solid, item.x, item.y, item.rotation) : null;
-    addTrianglePatch(placePoints(local, item.x, item.y, item.rotation), colors, solid);
+    const label = isModel ? models.get(item.modelId).name : CATALOG[item.type].label.toLowerCase();
+    addTrianglePatch(placePoints(local, item.x, item.y, item.rotation), colors, solid, label);
   }
   litDirty = false;
 }
@@ -602,8 +568,6 @@ function surfaceColor(e, albedo, k) {
   const tone = 1.35 * Math.pow(1 - Math.exp(-e / (0.45 * state.scaleMax)), 0.85);
   return [0, 1, 2].map((c) => Math.min(1, albedo[k + c] * tone * WARM[c]));
 }
-
-let surfaceGeneration = 0;
 
 /// Evaluates every surface point with the C++ engine (in chunks, so the page stays responsive;
 /// a newer request or a drag cancels this one) and colours the meshes.
@@ -640,6 +604,7 @@ async function computeSurfaces() {
   }
   offset = 0;
   for (const p of litPatches) {
+    p.lux = lux.subarray(offset, offset + p.points.length / 3); // for the hover read-out
     const attr = p.geometry.attributes.color;
     for (let v = 0; v < p.index.length; ++v) {
       const [r, g, b] = surfaceColor(lux[offset + p.index[v]], p.albedo, v * 3);
@@ -850,6 +815,19 @@ renderer.domElement.addEventListener('pointermove', (e) => {
   }
   const over = pick();
   renderer.domElement.style.cursor = over ? 'grab' : '';
+  if (litGroup.visible) { // whole-room view: read the computed light of any surface
+    const surfaceHit = raycaster.intersectObjects(litGroup.children, false)[0];
+    const value = surfaceHit ? surfaceLuxAt(surfaceHit) : null;
+    if (value) {
+      tip.textContent = `${value.label}: ` + (Number.isNaN(value.lux) ? 'not measured' : `${value.lux.toFixed(0)} lx`);
+      tip.style.left = `${e.clientX + 14}px`;
+      tip.style.top = `${e.clientY + 14}px`;
+      tip.style.display = 'block';
+    } else {
+      tip.style.display = 'none';
+    }
+    return;
+  }
   const hit = heat && !over ? raycaster.intersectObject(heat.mesh, false)[0] : null;
   if (hit && last) {
     const g = last.grid;
@@ -959,7 +937,7 @@ function drawPolar() {
 /// sets its requirements), otherwise the whole work plane. The whole plane is always in the line
 /// below.
 function showStats() {
-  const task = taskStats();
+  const task = taskStats(last.lux, last.grid, state.furniture);
   const shown = task ?? { avg: last.avgLux, min: last.minLux, max: last.maxLux, u0: last.uniformityU0 };
   $('stats-title').innerHTML = task
     ? `Task areas <span>(${task.areas} desk working zones and tables, ${fmt(task.n)} points)</span>`
@@ -978,54 +956,6 @@ function showStats() {
     ' · WebAssembly, 1 thread' + (isRoomView() && surfaceInfo ? ` · ${surfaceInfo}` : '');
 }
 
-// Task areas: the surfaces where the visual task happens (desk tops, the meeting table). EN 12464-1
-// sets its office requirements on the task area, not on every point of the room: a direct-only
-// point-source model leaves small dark pockets right behind chair backs, which would otherwise
-// make the room's E_min 0 lx.
-const TASK_TARGET = { lux: 500, u0: 0.6 }; // EN 12464-1 office tasks (writing, typing, reading)
-
-/// Workstations: the working zone in front of the monitor (full desk width, from the front edge
-/// to the monitor foot); plain desks: the whole top; the meeting table: its round top.
-function taskAreas() {
-  const areas = [];
-  for (const item of state.furniture) {
-    if (item.type === 'workstation') areas.push({ ...item, x0: -0.8, x1: 0.8, y0: -0.4, y1: 0.1 });
-    if (item.type === 'desk') areas.push({ ...item, x0: -0.8, x1: 0.8, y0: -0.4, y1: 0.4 });
-    if (item.type === 'meeting') areas.push({ ...item, r: 0.6 });
-  }
-  return areas;
-}
-
-function inTaskArea(area, x, y) {
-  const dx = x - area.x, dy = y - area.y;
-  if (area.r) return dx * dx + dy * dy <= area.r * area.r;
-  const a = (area.rotation * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
-  const lx = c * dx + s * dy, ly = -s * dx + c * dy; // into the item's frame
-  return lx >= area.x0 && lx <= area.x1 && ly >= area.y0 && ly <= area.y1;
-}
-
-/// E_avg, E_min, E_max and U0 over the grid points inside the task areas, or null if none.
-function taskStats() {
-  const areas = taskAreas();
-  if (!areas.length) return null;
-  const g = last.grid, dx = (g.x1 - g.x0) / g.nx, dy = (g.y1 - g.y0) / g.ny;
-  let min = Infinity, max = 0, sum = 0, n = 0;
-  for (let j = 0; j < g.ny; ++j) {
-    const y = g.y0 + (j + 0.5) * dy;
-    for (let i = 0; i < g.nx; ++i) {
-      const x = g.x0 + (i + 0.5) * dx;
-      const e = last.lux[j * g.nx + i];
-      if (Number.isNaN(e) || !areas.some((a) => inTaskArea(a, x, y))) continue;
-      min = Math.min(min, e);
-      max = Math.max(max, e);
-      sum += e;
-      ++n;
-    }
-  }
-  if (!n) return null;
-  const avg = sum / n;
-  return { avg, min, max, u0: avg > 0 ? min / avg : 0, n, areas: areas.length };
-}
 
 function showTaskVerdict(task) {
   const box = $('task-stats');
