@@ -1,5 +1,8 @@
 # LumaCore
 
+**[▶ Live 3D demo](https://predragmilovanovic.github.io/LumaCore/)**: drag the lamps and watch the
+C++ engine (compiled to WebAssembly) recalculate the light in your browser.
+
 A C++17 engine that computes **direct illuminance (lux)** from point light sources on a
 measurement grid inside a 3D room, with ray-cast shadows. It runs sequentially or on all CPU
 cores, and it is exposed as a native Windows DLL with a C API that a **C# (.NET Framework 4.8)**
@@ -17,7 +20,8 @@ are on the 0.75 m work plane, with the 0.5 m border zone excluded. E_avg 414 lx,
 ### Interactive 3D in the browser
 
 The same C++ engine, compiled to WebAssembly, drives a three.js (WebGL) view of the room. Drag a
-lamp, and the lux map is recalculated by the C++ code on every frame. Details: [docs/web.md](docs/web.md).
+lamp, and the lux map is recalculated by the C++ code on every frame.
+**[Open the live demo](https://predragmilovanovic.github.io/LumaCore/)** · details: [docs/web.md](docs/web.md).
 
 ![LumaCore Web: 3D room with lamps, obstacles and the live lux map](docs/images/web_demo.png)
 
