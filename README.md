@@ -14,6 +14,13 @@ its limits.
 *A 6 × 4 m office with six 800 cd luminaires, a cabinet, a partition and a pendant globe. Values
 are on the 0.75 m work plane, with the 0.5 m border zone excluded. E_avg 414 lx, U0 = 0.25.*
 
+### Interactive 3D in the browser
+
+The same C++ engine, compiled to WebAssembly, drives a three.js (WebGL) view of the room. Drag a
+lamp, and the lux map is recalculated by the C++ code on every frame. Details: [docs/web.md](docs/web.md).
+
+![LumaCore Web: 3D room with lamps, obstacles and the live lux map](docs/images/web_demo.png)
+
 ## Highlights
 
 | | |
@@ -21,6 +28,7 @@ are on the 0.75 m work plane, with the 0.5 m border zone excluded. E_avg 414 lx,
 | **Verified numerics** | Illuminance matches the closed form I·h/(h²+d²)^{3/2} to a relative 6×10⁻¹⁶. Flux through a square matches I·Ω (exact solid angle) to within 10⁻⁴. Every ray-primitive intersection is tested at its edge cases and with seeded randomized property tests. |
 | **Parallel and deterministic** | `ThreadedExecutor` reaches **8.5× on 12 cores and 9.9× on 24 threads** (Ryzen 9 7900), and its output is **bit-identical** to the sequential run for any thread count. [Benchmarks](docs/benchmarks.md) |
 | **Clean native/managed boundary** | A plain C API (13 functions, fixed-width types, opaque handle, caller-owned buffers, no exceptions across the boundary). The C# side uses a `SafeHandle` and turns native errors into exceptions. C++ and C# produce **exactly equal** grids. [Interop](docs/interop.md) |
+| **One engine, three platforms** | The unchanged C++ sources also compile to **WebAssembly** (Clang, `-Wall -Wextra -Werror`, 95 KB). Native C++, C# through the DLL, and the browser all produce **bit-identical** results. |
 | **Tested and reproducible** | 102 C++ tests (GoogleTest) and 14 C# tests (xUnit). One script builds and verifies everything from a clean checkout in about 40 s. No warnings at `/W4 /WX`. |
 
 ## Quick start
@@ -101,6 +109,13 @@ python tools\plot_bench.py results\bench.csv
 
 ![Speedup and efficiency vs thread count](docs/images/bench_speedup.png)
 
+**3D web version** (after `scripts\build_wasm.ps1`, see [docs/web.md](docs/web.md)):
+
+```powershell
+python -m http.server 8000 --directory web
+start http://localhost:8000
+```
+
 **Geometry demo.** A ray-cast image built only from the intersection code:
 
 ```powershell
@@ -126,9 +141,10 @@ dotnet test managed\LumaCore.sln -c Release --no-build
 | `native/tests` | GoogleTest unit, property, concurrency and C API tests |
 | `native/apps`, `native/bench` | `lumacore_cli`, `lumacore_geometry_demo`, `lumacore_bench`, shared scenarios |
 | `managed/` | `LumaCore.Interop`, `LumaCore.Console`, `LumaCore.Interop.Tests` |
-| `tools/` | `heatmap.py`, `plot_bench.py`, `compare_grids.py` |
+| `native/wasm`, `web/` | WebAssembly bindings and the 3D browser front end (`index.html`, `app.js`, generated `lumacore.js`) |
+| `tools/` | `heatmap.py`, `plot_bench.py`, `compare_grids.py`, `wasm_check.mjs` |
 | `scripts/build_all.ps1` | build and verify everything |
-| `docs/` | [architecture](docs/architecture.md), [physics](docs/physics.md), [interop](docs/interop.md), [benchmarks](docs/benchmarks.md), [plan](docs/plan.md) |
+| `docs/` | [architecture](docs/architecture.md), [physics](docs/physics.md), [interop](docs/interop.md), [benchmarks](docs/benchmarks.md), [web](docs/web.md), [development log](docs/development-log.md), [plan](docs/plan.md) |
 
 ## Limitations and next steps
 
@@ -155,6 +171,7 @@ Built milestone by milestone (plan and acceptance criteria in [docs/plan.md](doc
 | M4 | Multithreaded execution and benchmark | done |
 | M5 | C API DLL and C# P/Invoke | done |
 | M6 | Build-and-verify script, architecture and documentation | done |
-| M7 | Optional: EULUMDAT photometry, BVH, CUDA, OpenGL | not started |
+| M7a | WebAssembly build and interactive 3D web front end (WebGL) | done |
+| M7b | Optional: EULUMDAT photometry, BVH, CUDA | not started |
 
 Coding conventions and project rules: [CONTRIBUTING.md](CONTRIBUTING.md).

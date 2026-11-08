@@ -4,7 +4,8 @@ illuminance (lux) on a measurement grid. C++17 core → C ABI DLL → C# (.NET F
 Full plan, risks and acceptance criteria: docs/plan.md.
 
 ## Build
-- Everything, verified: `powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 [-Clean] [-Bench]`
+- Everything, verified: `powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 [-Clean] [-Bench] [-Web]`
+  (`-Web` needs the Emscripten SDK in %USERPROFILE%\emsdk; builds web/lumacore.js and checks it equals native)
   (run this before declaring any change done).
 - Toolchain: VS 2022 Build Tools (MSVC x64), CMake ≥ 3.24, .NET SDK 8 (targets net48), Python 3.12.
 - `cmake --preset msvc` · `cmake --build --preset msvc-release` · `ctest --preset msvc-release`

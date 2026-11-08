@@ -13,13 +13,18 @@
 .PARAMETER Bench
     Also run the multithreading benchmark (about 10 s) and plot it.
 
+.PARAMETER Web
+    Also build the WebAssembly version (needs the Emscripten SDK, see docs/web.md), check it
+    in Node.js and confirm its results equal the native ones.
+
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Clean
 #>
 [CmdletBinding()]
 param(
     [switch]$Clean,
-    [switch]$Bench
+    [switch]$Bench,
+    [switch]$Web
 )
 
 $ErrorActionPreference = 'Stop'
@@ -83,6 +88,22 @@ Step 'Plot heatmaps' {
 if ($Bench) {
     Step 'Benchmark: sequential vs threaded' { .\build\bin\Release\lumacore_bench.exe }
     Step 'Plot benchmark'                    { python tools\plot_bench.py results\bench.csv }
+}
+
+if ($Web) {
+    Step 'Build WebAssembly (Emscripten)' {
+        powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_wasm.ps1
+    }
+    Step 'WebAssembly checks (Node.js)' {
+        # Prefer the Node.js bundled with the Emscripten SDK; fall back to one on PATH.
+        $nodeExe = Get-ChildItem (Join-Path $env:USERPROFILE 'emsdk\node') -Filter node.exe -Recurse -Depth 2 `
+            -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+        if (-not $nodeExe) { $nodeExe = 'node' }
+        & $nodeExe tools\wasm_check.mjs
+    }
+    Step 'Compare C++ and WebAssembly grids (must be exactly equal)' {
+        python tools\compare_grids.py results\office.csv results\office_wasm.csv
+    }
 }
 
 $timer.Stop()

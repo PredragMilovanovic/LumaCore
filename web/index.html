@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LumaCore Web</title>
+  <meta name="description" content="Interactive 3D lighting calculation: a C++ engine compiled to WebAssembly.">
+  <style>
+    :root {
+      --surface: #fcfcfb;
+      --panel: rgba(252, 252, 251, 0.94);
+      --ink: #0b0b0b;
+      --ink-2: #52514e;
+      --ink-3: #8a8984;
+      --line: #e4e3df;
+      --accent: #2a78d6;
+      --not-measured: #c9c8c2;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--surface); color: var(--ink);
+      font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    #view { position: fixed; inset: 0; }
+    #view canvas { display: block; }
+    .panel { position: fixed; top: 16px; left: 16px; width: 300px; max-height: calc(100% - 32px);
+      overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+      padding: 14px 16px; box-shadow: 0 2px 12px rgba(0,0,0,.06); }
+    h1 { font-size: 17px; margin: 0; }
+    .sub { color: var(--ink-2); font-size: 12px; margin: 2px 0 12px; }
+    .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+    .stat { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+    .stat .k { color: var(--ink-2); font-size: 11px; }
+    .stat .v { font-size: 18px; font-variant-numeric: tabular-nums; }
+    .stat .v small { font-size: 11px; color: var(--ink-2); }
+    .meta { color: var(--ink-2); font-size: 12px; margin-bottom: 12px; font-variant-numeric: tabular-nums; }
+    .row { margin: 10px 0; }
+    .row label { display: flex; justify-content: space-between; color: var(--ink-2); font-size: 12px; }
+    .row output { color: var(--ink); font-variant-numeric: tabular-nums; }
+    input[type=range] { width: 100%; accent-color: var(--accent); }
+    select { width: 100%; padding: 4px; }
+    .check { display: flex; gap: 8px; align-items: center; color: var(--ink); }
+    .buttons { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+    button { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 6px 10px;
+      cursor: pointer; color: var(--ink); font: inherit; font-size: 13px; }
+    button:hover { border-color: var(--ink-3); }
+    button:disabled { color: var(--ink-3); cursor: default; }
+    .legend { margin-top: 12px; }
+    .legend .bar { height: 10px; border-radius: 3px; border: 1px solid var(--line); }
+    .legend .ticks { display: flex; justify-content: space-between; color: var(--ink-2); font-size: 11px;
+      font-variant-numeric: tabular-nums; margin-top: 2px; }
+    .legend .key { display: flex; gap: 6px; align-items: center; color: var(--ink-2); font-size: 11px; margin-top: 6px; }
+    .legend .swatch { width: 12px; height: 12px; background: var(--not-measured); border-radius: 2px; }
+    .hint { color: var(--ink-2); font-size: 12px; margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+    .error { color: #b3261e; font-size: 12px; margin-top: 8px; }
+    #tip { position: fixed; pointer-events: none; background: var(--ink); color: #fff; font-size: 12px;
+      padding: 4px 8px; border-radius: 4px; display: none; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    #loading { position: fixed; inset: 0; display: grid; place-items: center; color: var(--ink-2); }
+    @media (max-width: 640px) {
+      .panel { top: auto; bottom: 0; left: 0; right: 0; width: auto; max-height: 45%; border-radius: 10px 10px 0 0; }
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="view"></div>
+  <div id="loading">Loading the C++ engine…</div>
+
+  <div class="panel" id="panel" hidden>
+    <h1>LumaCore Web</h1>
+    <div class="sub">C++ lighting engine compiled to WebAssembly · <span id="version"></span></div>
+
+    <div class="stats">
+      <div class="stat"><div class="k">Average E<sub>avg</sub></div><div class="v" id="s-avg">–</div></div>
+      <div class="stat"><div class="k">Uniformity U0</div><div class="v" id="s-u0">–</div></div>
+      <div class="stat"><div class="k">Minimum E<sub>min</sub></div><div class="v" id="s-min">–</div></div>
+      <div class="stat"><div class="k">Maximum E<sub>max</sub></div><div class="v" id="s-max">–</div></div>
+    </div>
+    <div class="meta" id="s-meta"></div>
+
+    <div class="row">
+      <label for="cd">Selected lamp intensity <output id="cd-out"></output></label>
+      <input type="range" id="cd" min="100" max="2000" step="50">
+    </div>
+    <div class="row">
+      <label for="wp">Work-plane height <output id="wp-out"></output></label>
+      <input type="range" id="wp" min="0" max="1.5" step="0.05">
+    </div>
+    <div class="row">
+      <label for="cell">Grid spacing</label>
+      <select id="cell">
+        <option value="0.1">10 cm (fast)</option>
+        <option value="0.05" selected>5 cm</option>
+        <option value="0.025">2.5 cm (fine)</option>
+      </select>
+    </div>
+    <div class="row check"><input type="checkbox" id="shadows" checked><label for="shadows" style="color:inherit;font-size:13px">Shadows from obstacles</label></div>
+
+    <div class="buttons">
+      <button id="add">Add lamp</button>
+      <button id="remove">Remove selected</button>
+      <button id="reset">Reset</button>
+    </div>
+
+    <div class="legend">
+      <div class="bar" id="legend-bar"></div>
+      <div class="ticks" id="legend-ticks"></div>
+      <div class="key"><span class="swatch"></span> inside obstacle (not measured)</div>
+    </div>
+    <div class="error" id="error"></div>
+
+    <div class="hint">
+      <b>Drag a lamp</b> to move it · left-drag empty space to rotate · right-drag to pan ·
+      scroll to zoom · hover the coloured plane to read lux.<br>
+      Direct light only, isotropic point sources, hard shadows; 0.5 m border zone excluded.
+    </div>
+  </div>
+
+  <div id="tip"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
