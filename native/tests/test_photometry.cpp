@@ -213,6 +213,9 @@ TEST(Photometry, SampleFilesConserveFlux) {
 TEST(Photometry, LinearSampleIsWiderAcrossThanAlong) {
     const auto p = lc::load_eulumdat(std::string(LUMACORE_SAMPLES_DIR) + "/ldt/linear_batwing.ldt");
     EXPECT_EQ(p.info().symmetry, Photometry::Symmetry::BothPlanes);
+    EXPECT_DOUBLE_EQ(p.info().length_mm, 1200.0);  // luminaire dimensions, lines 13-15
+    EXPECT_DOUBLE_EQ(p.info().width_mm, 150.0);
+    EXPECT_DOUBLE_EQ(p.info().height_mm, 60.0);
     // At 50° from vertical the batwing (C90, across) is much stronger than along the length (C0).
     EXPECT_GT(p.intensity_cd(90, 50), 1.5 * p.intensity_cd(0, 50));
     EXPECT_DOUBLE_EQ(p.intensity_cd(90, 50), p.intensity_cd(270, 50));

@@ -1,9 +1,11 @@
 #pragma once
 
 #include <cstddef>
+#include <memory>
 #include <optional>
 #include <vector>
 
+#include "lumacore/geometry/bvh.hpp"
 #include "lumacore/geometry/sphere.hpp"
 #include "lumacore/geometry/triangle.hpp"
 #include "lumacore/lighting/point_light.hpp"
@@ -48,7 +50,11 @@ public:
     [[nodiscard]] const std::optional<Room>& room() const noexcept { return room_; }
 
     void add_light(const PointLight& light);
+    /// Removes all lights; geometry and its acceleration structure are kept.
+    void clear_lights() noexcept { lights_.clear(); }
     void add_triangle(const Triangle& triangle);
+    /// Bulk add, e.g. a furniture or imported mesh (open, two-sided surfaces).
+    void add_triangles(const std::vector<Triangle>& triangles);
     void add_sphere(const Sphere& sphere);
     /// Axis-aligned box occluder (12 triangles). Throws like box_triangles().
     void add_box(const Vec3& min, const Vec3& max);
@@ -61,8 +67,15 @@ public:
     }
 
     /// True if any occluder is hit with t in (0, max_distance). Any-hit query with early
-    /// exit: cheaper than finding the nearest hit, which shadows do not need.
+    /// exit: cheaper than finding the nearest hit, which shadows do not need. Uses the BVH if
+    /// build_acceleration() was called since the last geometry change, else tests every
+    /// triangle; both give identical answers.
     [[nodiscard]] bool occluded(const Ray& ray, double max_distance) const noexcept;
+
+    /// Builds a bounding volume hierarchy over the triangles (O(n log n)). Call after adding
+    /// geometry and before simulating; any later geometry change discards it.
+    void build_acceleration();
+    [[nodiscard]] bool has_acceleration() const noexcept { return bvh_ != nullptr; }
 
     /// True if p lies strictly inside a solid occluder (box or sphere). Such points are
     /// not measurable surfaces. Loose triangles are open surfaces and never contain p.
@@ -78,6 +91,7 @@ private:
     std::vector<Triangle> triangles_;
     std::vector<Sphere> spheres_;
     std::vector<Aabb> boxes_;
+    std::shared_ptr<const TriangleBvh> bvh_;  // shared: Scene stays cheap to copy
 };
 
 }  // namespace lc

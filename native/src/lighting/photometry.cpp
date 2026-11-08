@@ -240,11 +240,13 @@ Photometry parse_eulumdat(std::istream& in) {
     (void)r.text("luminaire number");
     (void)r.text("file name");
     (void)r.text("date/user");
-    static const char* const kDimensions[] = {
-        "luminaire length", "luminaire width", "luminaire height", "luminous area length",
-        "luminous area width", "luminous area height C0", "luminous area height C90",
-        "luminous area height C180", "luminous area height C270"};
-    for (const char* what : kDimensions) {
+    info.length_mm = r.number("luminaire length");
+    info.width_mm = r.number("luminaire width");
+    info.height_mm = r.number("luminaire height");
+    static const char* const kLuminousArea[] = {
+        "luminous area length", "luminous area width", "luminous area height C0",
+        "luminous area height C90", "luminous area height C180", "luminous area height C270"};
+    for (const char* what : kLuminousArea) {
         (void)r.number(what);
     }
     (void)r.number("downward flux fraction");

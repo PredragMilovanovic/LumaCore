@@ -7,12 +7,14 @@
 // Usage: lumacore_bench [--cell <m>] [--reps <n>] [--out <file.csv>]
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -128,6 +130,47 @@ int run(int argc, char** argv) {
         row("threaded", t, timing, base.median_ms, identical);
     }
     std::cout << "\n  wrote " << out_path << "\n";
+
+    // ---- Occlusion acceleration: brute force vs BVH, growing amounts of clutter ----------
+    // The office plus N random boxes (12 triangles each) BELOW the 0.75 m work plane, all
+    // threads, 5 cm grid. Clutter that blocks most shadow rays would flatter brute force (an
+    // any-hit search stops at the first blocker); in a furnished room most light reaches the
+    // work plane, so most rays are unblocked and brute force must test every triangle.
+    std::cout << "\nOcclusion: every triangle tested (brute force) vs bounding volume hierarchy\n"
+              << "triangles   brute force       BVH    build   speedup\n";
+    std::ofstream bvh_csv("results/bench_bvh.csv");
+    bvh_csv << "triangles,brute_ms,bvh_ms,build_ms,speedup,identical\n";
+    const lc::MeasurementGrid small_grid = lc::apps::workplane_grid(sc, 0.05, 0.5);
+    const lc::ThreadedExecutor all_threads(0);
+    std::mt19937 rng(2026);
+    std::uniform_real_distribution<double> ux(0.6, 5.4), uy(0.6, 3.4), uz(0.0, 0.35), us(0.05, 0.35);
+    lc::Scene cluttered = scene;
+    for (const int boxes : {0, 100, 1000, 4000}) {
+        while (static_cast<int>(cluttered.triangles().size()) < 24 + 12 * boxes) {
+            const lc::Vec3 lo{ux(rng), uy(rng), uz(rng)};
+            cluttered.add_box(lo, lo + lc::Vec3{us(rng), us(rng), us(rng)});
+        }
+        lc::Scene accelerated = cluttered;
+        const auto build_start = std::chrono::steady_clock::now();
+        accelerated.build_acceleration();
+        const double build_ms = std::chrono::duration<double, std::milli>(
+                                    std::chrono::steady_clock::now() - build_start).count();
+
+        const int r = boxes >= 1000 ? 1 : std::max(1, reps / 2);  // brute force gets slow
+        const Timing brute = measure({cluttered, small_grid, {true}}, all_threads, r);
+        const Timing fast = measure({accelerated, small_grid, {true}}, all_threads, reps);
+        const bool identical = bit_identical(brute.lux, fast.lux);
+        all_identical = all_identical && identical;
+        const double speedup = brute.median_ms / fast.median_ms;
+        std::cout << std::right << std::setw(9) << cluttered.triangles().size() << std::fixed
+                  << std::setprecision(1) << std::setw(11) << brute.median_ms << " ms"
+                  << std::setw(7) << fast.median_ms << " ms" << std::setw(6) << build_ms
+                  << " ms" << std::setw(8) << speedup << "x"
+                  << (identical ? "   identical" : "   MISMATCH") << "\n";
+        bvh_csv << cluttered.triangles().size() << "," << brute.median_ms << "," << fast.median_ms
+                << "," << build_ms << "," << speedup << "," << (identical ? 1 : 0) << "\n";
+    }
+    std::cout << "\n  wrote results/bench_bvh.csv\n";
 
     if (!all_identical) {
         std::cerr << "error: a threaded result differs from the sequential result\n";

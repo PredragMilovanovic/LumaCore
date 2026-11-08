@@ -4,10 +4,15 @@
 // runs the SequentialExecutor: browser threads need SharedArrayBuffer, which requires
 // cross-origin isolation headers that static hosts such as GitHub Pages cannot send.
 //
+// Geometry (room, boxes, spheres, triangle meshes) and its bounding volume hierarchy are
+// cached and rebuilt only after a geometry change; lights are replaced on every run. Dragging
+// a lamp therefore costs one simulation, not a BVH rebuild.
+//
 // JavaScript usage:
 //   const lc = await createLumaCore();
 //   const engine = new lc.Engine();
 //   engine.setRoom(6, 4, 3);
+//   engine.addTriangles(new Float64Array([ax, ay, az, bx, by, bz, cx, cy, cz, ...]));
 //   engine.addLight(3, 2, 2.8, 800);
 //   const r = engine.simulate(0.5, 0.5, 5.5, 3.5, 0.75, 100, 60, true);
 //   // r.ok, r.error, r.minLux, r.maxLux, r.avgLux, r.uniformityU0, r.validPoints,
@@ -16,6 +21,8 @@
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
 
+#include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <exception>
 #include <memory>
@@ -47,16 +54,58 @@ struct SphereSpec {
     double radius;
 };
 
-/// Holds the scene description; builds an lc::Scene for every simulate() call. Rebuilding is
-/// cheap (tens of objects) and keeps add/remove simple while lights are dragged around.
-/// All C++ exceptions are converted to { ok: false, error } so nothing throws into JS.
+/// All C++ exceptions are converted to { ok: false, error } or a status value, so nothing
+/// throws into JavaScript.
 class Engine {
 public:
+    // ---- Geometry (cached; any change marks it dirty) ---------------------------------
+
     void setRoom(double width_m, double depth_m, double height_m) {
         room_ = lc::Room{width_m, depth_m, height_m};
         has_room_ = true;
+        dirty_ = true;
     }
-    void clearRoom() { has_room_ = false; }
+    void clearRoom() {
+        has_room_ = false;
+        dirty_ = true;
+    }
+    void clearObstacles() {
+        boxes_.clear();
+        spheres_.clear();
+        mesh_.clear();
+        dirty_ = true;
+    }
+    void addBox(double x0, double y0, double z0, double x1, double y1, double z1) {
+        boxes_.push_back({{x0, y0, z0}, {x1, y1, z1}});
+        dirty_ = true;
+    }
+    void addSphere(double cx, double cy, double cz, double radius_m) {
+        spheres_.push_back({{cx, cy, cz}, radius_m});
+        dirty_ = true;
+    }
+
+    /// Adds triangles from a flat array [ax, ay, az, bx, by, bz, cx, cy, cz, ...] (metres).
+    /// Degenerate or non-finite triangles, common in downloaded models, are skipped.
+    /// Returns the number added; skippedTriangles() reports the rest.
+    int addTriangles(const val& coordinates) {
+        const std::vector<double> v = emscripten::convertJSArrayToNumberVector<double>(coordinates);
+        int added = 0;
+        for (std::size_t k = 0; k + 9 <= v.size(); k += 9) {
+            try {
+                mesh_.emplace_back(lc::Vec3{v[k], v[k + 1], v[k + 2]},
+                                   lc::Vec3{v[k + 3], v[k + 4], v[k + 5]},
+                                   lc::Vec3{v[k + 6], v[k + 7], v[k + 8]});
+                ++added;
+            } catch (const std::invalid_argument&) {
+                ++skipped_;
+            }
+        }
+        dirty_ = true;
+        return added;
+    }
+    int skippedTriangles() const { return skipped_; }
+
+    // ---- Lights (replaced on every run) -----------------------------------------------
 
     void clearLights() { lights_.clear(); }
     void addLight(double x, double y, double z, double intensity_cd) {
@@ -67,6 +116,8 @@ public:
                              double dimming) {
         lights_.push_back({{x, y, z}, 0.0, photometry_id, rotation_deg, dimming});
     }
+
+    // ---- Photometry -------------------------------------------------------------------
 
     /// Parses EULUMDAT text. Returns an id >= 0, or -1 with the reason in lastError().
     int addPhotometry(const std::string& ldt_text) {
@@ -82,7 +133,8 @@ public:
     }
     std::string lastError() const { return last_error_; }
 
-    /// { ok, name, manufacturer, symmetry, lampFluxLm, lorPercent, fluxLm, maxCd }
+    /// { ok, name, manufacturer, symmetry, lampFluxLm, lorPercent, fluxLm, maxCd,
+    ///   lengthMm, widthMm, heightMm }
     val photometryInfo(int id) const {
         val out = val::object();
         const lc::Photometry* p = find_photometry(id);
@@ -97,6 +149,9 @@ public:
         out.set("lorPercent", p->info().lor_percent);
         out.set("fluxLm", p->luminous_flux_lm());
         out.set("maxCd", p->max_intensity_cd());
+        out.set("lengthMm", p->info().length_mm);
+        out.set("widthMm", p->info().width_mm);
+        out.set("heightMm", p->info().height_mm);
         return out;
     }
 
@@ -113,16 +168,7 @@ public:
         return val(emscripten::typed_memory_view(curve_.size(), curve_.data()));
     }
 
-    void clearObstacles() {
-        boxes_.clear();
-        spheres_.clear();
-    }
-    void addBox(double x0, double y0, double z0, double x1, double y1, double z1) {
-        boxes_.push_back({{x0, y0, z0}, {x1, y1, z1}});
-    }
-    void addSphere(double cx, double cy, double cz, double radius_m) {
-        spheres_.push_back({{cx, cy, cz}, radius_m});
-    }
+    // ---- Simulation -------------------------------------------------------------------
 
     /// Horizontal, upward-facing grid over [x0, x1] x [y0, y1] at height z.
     val simulate(double x0, double y0, double x1, double y1, double z, int nx, int ny,
@@ -132,13 +178,32 @@ public:
             if (nx <= 0 || ny <= 0) {
                 throw std::invalid_argument("nx and ny must be > 0");
             }
-            const lc::Scene scene = build_scene();
+            double build_ms = 0.0;
+            if (dirty_) {
+                const auto start = std::chrono::steady_clock::now();
+                rebuild_geometry();
+                build_ms = std::chrono::duration<double, std::milli>(
+                               std::chrono::steady_clock::now() - start).count();
+            }
+            scene_.clear_lights();
+            for (const LightSpec& l : lights_) {
+                if (l.photometry_id < 0) {
+                    scene_.add_light(lc::PointLight(l.position, l.intensity_cd));
+                } else {
+                    if (find_photometry(l.photometry_id) == nullptr) {
+                        throw std::invalid_argument("unknown photometry id");
+                    }
+                    scene_.add_light(lc::PointLight(
+                        l.position, photometries_[static_cast<std::size_t>(l.photometry_id)],
+                        l.rotation_deg, l.dimming));
+                }
+            }
             const lc::MeasurementGrid grid = lc::MeasurementGrid::horizontal(
                 x0, y0, x1, y1, z, static_cast<std::size_t>(nx), static_cast<std::size_t>(ny));
 
             lux_.assign(grid.point_count(), 0.0);
             lc::SequentialExecutor executor;
-            const lc::SimulationJob job{scene, grid, lc::SimulationOptions{shadows}};
+            const lc::SimulationJob job{scene_, grid, lc::SimulationOptions{shadows}};
             const lc::RunSummary s = lc::simulate_into(job, executor, lux_.data(), lux_.size());
 
             out.set("ok", true);
@@ -150,6 +215,8 @@ public:
             out.set("uniformityU0", s.stats.uniformity_u0);
             out.set("validPoints", static_cast<double>(s.stats.valid_points));
             out.set("elapsedMs", s.elapsed_ms);
+            out.set("buildMs", build_ms);
+            out.set("triangles", static_cast<double>(scene_.triangles().size()));
             // Zero-copy view into WebAssembly memory. Valid until the next simulate() call
             // (or until memory grows), so JS must consume it immediately.
             out.set("lux", val(emscripten::typed_memory_view(lux_.size(), lux_.data())));
@@ -161,22 +228,10 @@ public:
     }
 
 private:
-    lc::Scene build_scene() const {
+    void rebuild_geometry() {
         lc::Scene scene;
         if (has_room_) {
             scene.set_room(room_.width_m, room_.depth_m, room_.height_m);
-        }
-        for (const LightSpec& l : lights_) {
-            if (l.photometry_id < 0) {
-                scene.add_light(lc::PointLight(l.position, l.intensity_cd));
-            } else {
-                if (find_photometry(l.photometry_id) == nullptr) {
-                    throw std::invalid_argument("unknown photometry id");
-                }
-                scene.add_light(lc::PointLight(l.position,
-                                               photometries_[static_cast<std::size_t>(l.photometry_id)],
-                                               l.rotation_deg, l.dimming));
-            }
         }
         for (const BoxSpec& b : boxes_) {
             scene.add_box(b.min, b.max);
@@ -184,7 +239,10 @@ private:
         for (const SphereSpec& s : spheres_) {
             scene.add_sphere(lc::Sphere(s.center, s.radius));
         }
-        return scene;
+        scene.add_triangles(mesh_);
+        scene.build_acceleration();
+        scene_ = std::move(scene);  // only replaced once everything above succeeded
+        dirty_ = false;
     }
 
     const lc::Photometry* find_photometry(int id) const {
@@ -202,6 +260,10 @@ private:
     std::vector<LightSpec> lights_;
     std::vector<BoxSpec> boxes_;
     std::vector<SphereSpec> spheres_;
+    std::vector<lc::Triangle> mesh_;
+    int skipped_ = 0;
+    lc::Scene scene_;
+    bool dirty_ = true;
     std::vector<double> lux_;
 };
 
@@ -214,6 +276,11 @@ EMSCRIPTEN_BINDINGS(lumacore) {
         .constructor<>()
         .function("setRoom", &Engine::setRoom)
         .function("clearRoom", &Engine::clearRoom)
+        .function("clearObstacles", &Engine::clearObstacles)
+        .function("addBox", &Engine::addBox)
+        .function("addSphere", &Engine::addSphere)
+        .function("addTriangles", &Engine::addTriangles)
+        .function("skippedTriangles", &Engine::skippedTriangles)
         .function("clearLights", &Engine::clearLights)
         .function("addLight", &Engine::addLight)
         .function("addPhotometricLight", &Engine::addPhotometricLight)
@@ -221,9 +288,6 @@ EMSCRIPTEN_BINDINGS(lumacore) {
         .function("lastError", &Engine::lastError)
         .function("photometryInfo", &Engine::photometryInfo)
         .function("polarCurve", &Engine::polarCurve)
-        .function("clearObstacles", &Engine::clearObstacles)
-        .function("addBox", &Engine::addBox)
-        .function("addSphere", &Engine::addSphere)
         .function("simulate", &Engine::simulate);
     emscripten::function("version", &version);
 }

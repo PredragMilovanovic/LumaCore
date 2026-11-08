@@ -17,6 +17,7 @@ each was resolved. Every milestone ended only when its acceptance criteria (in
 | M7a Web | engine compiled to WebAssembly (Emscripten), interactive 3D front end (three.js/WebGL) | WebAssembly = native exactly; headless-browser screenshot |
 | M7b Photometry | EULUMDAT reader (5 symmetry types), luminaire rotation and dimming, `--ldt` in the CLI, luminaire choice, `.ldt` upload and polar diagram on the web | 115 tests; sample flux = lamp flux × LOR within 0.1 %; web averages = CLI |
 | M7c Editable room | move/resize/add obstacles, room size, CSV and PNG export, share links with the whole design | headless tests: default office, a share link equal to the native `single` scenario, luminaire links, damaged links |
+| M7d Realistic scenes | `TriangleBvh` (bounding volume hierarchy) for occlusion; furnished office from procedural furniture; 3D model import; luminaires at their real size; task-area evaluation; light-appearance view; render on demand | 121 C++ tests; BVH bit-identical to brute force; 159× at 12k, 274× at 48k triangles |
 
 ## Problems found and how they were solved
 
@@ -68,7 +69,28 @@ These came from checking results against expectations, not from the compiler.
    and empty values as missing. The same tests confirmed `&dimming=50` gives exactly half the
    illuminance.
 
-9. **Smaller issues caught before committing.**
+9. **The first BVH benchmark flattered brute force (M7d).** With random boxes up to 2 m high, almost
+   every shadow ray was blocked early, and brute force got *faster* from 12,000 to 48,000 triangles.
+   The benchmark now puts the clutter below the work plane, the realistic case where most rays are
+   unblocked and brute force must test everything: 274× at 48,000 triangles.
+
+10. **Furniture made E_min 0 lx twice, for two different reasons (M7d).** A diagnostic script running
+    the same furniture code and engine in Node.js listed the dark points. First, points under the
+    keyboard: its bottom face lies on the work plane, so the shadow ray started inside it. Then, after
+    that fix, points between a chair backrest and its support bar, a closed pocket. Rule adopted:
+    nothing hollow may straddle the work plane (objects on it cast no shadow; backrests cast theirs
+    through a mid-plane; closed furniture is a solid). The 8 remaining 0 lx points sit 2–5 cm behind
+    chair backs and are physically right in this model, which is why the demo reports task areas.
+
+11. **Lamps right over the desks made the task minimum worse (M7d).** Comparing five layouts showed
+    that a luminaire behind a monitor is blocked by the screen for the keyboard area in front of it.
+    The final layout hangs the desk rows over the working zones.
+
+12. **The furnished scene hung the headless browser (M7d).** The page redrew the scene 60 times per
+    second; in software rendering that never let the virtual clock finish. The view now renders on
+    demand, which is also better for real users' CPU and battery.
+
+13. **Smaller issues caught before committing.**
    A `const` executor object without a user-provided constructor, missing standard headers, and a
    headless browser serving a cached `app.js` were each caught and fixed before they reached a commit.
 
@@ -76,7 +98,7 @@ These came from checking results against expectations, not from the compiler.
 
 | Check | Result |
 |---|---|
-| C++ tests (GoogleTest) | 115 passed, Debug and Release |
+| C++ tests (GoogleTest) | 121 passed, Debug and Release |
 | C# tests (xUnit, x64, .NET Framework 4.8) | 14 passed |
 | Compiler warnings | 0 with MSVC `/W4 /WX`, 0 with Clang `-Wall -Wextra -Wpedantic -Wshadow -Werror` |
 | Closed-form accuracy | max relative error 5.8 × 10⁻¹⁶ |

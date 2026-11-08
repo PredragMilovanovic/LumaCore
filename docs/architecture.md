@@ -26,7 +26,7 @@ flowchart LR
 | Module | Responsibility | Key types / files |
 |---|---|---|
 | math | value types and pure functions; `constexpr` where possible | `Vec3`, `Ray` (unit-direction invariant), `constants.hpp` (all tolerances in one place) |
-| geometry | primitives with validated construction; ray queries returning `std::optional<Hit>` | `intersection.cpp`: plane, sphere (cancellation-free roots), Möller–Trumbore triangle |
+| geometry | primitives with validated construction; ray queries returning `std::optional<Hit>`; acceleration | `intersection.cpp`: plane, sphere (cancellation-free roots), Möller–Trumbore triangle; `bvh.cpp`: bounding volume hierarchy |
 | lighting | the photometric model; luminaire light distributions | `point_illuminance()`, `PointLight`, `Photometry` + EULUMDAT reader |
 | scene | owns lights and occluders by value; any-hit occlusion; inside-solid test | `Scene`, `Room`, `MeasurementGrid` |
 | simulation | one per-row kernel shared by every executor; statistics | `compute_rows()`, `simulate()`, `simulate_into()`, `IExecutor` |
@@ -70,7 +70,7 @@ sequenceDiagram
 | Workers share the scene by `const&` and write disjoint rows | no locks and no races by construction (MSVC has no ThreadSanitizer, so it is designed out and tested by bit-equality) | locks or atomics per cell: slower and harder to reason about |
 | `double` everywhere on the CPU | lux values are summed over many lights; tests check to 1e-12 relative | `float`: kept for a possible GPU backend, where FP64 is slow |
 | Points inside obstacles are NaN and excluded from statistics | a work plane cutting through furniture is not a measurable surface; including those points made U0 meaningless | 0 lx: silently wrong statistics |
-| Brute-force occlusion over all primitives | correct, simple, fast enough for rooms with tens of objects; measured first | BVH: the planned next optimization, with a before/after benchmark |
+| Occlusion through a bounding volume hierarchy, brute force kept as the reference | furniture brings thousands of triangles; the BVH is 159× faster at 12,000 triangles, and a conservative box test plus the same triangle test in the leaves makes results bit-identical to brute force (tested) | brute force only: simple, but 0.9 s per frame at 48,000 triangles; a uniform grid: worse for uneven scenes |
 | Invalid input → exception at construction; hot path `noexcept` | objects are valid once built, so the inner loops need no checks | error codes everywhere: noisier code |
 
 ## Error handling across layers
@@ -92,7 +92,8 @@ sequenceDiagram
 | Photometry (C++) | EULUMDAT parsing, all symmetry types, interpolation, errors with line numbers, rotation, flux of the sample files, illuminance against closed forms | 13 |
 | Interop (C#) | struct layouts, closed-form values through P/Invoke, errors, dispose, 2000 create/destroy cycles | 14 |
 | End to end | C++ CLI vs C# console: identical grids (`tools/compare_grids.py`) | 1 script |
+| BVH (C++) | any-hit = brute force for 20,000 random rays, rays at corners and edges, axis-parallel rays; whole simulation bit-identical with and without the tree | 6 |
 | WebAssembly (Node.js) | closed form, error values, sample-file flux, office grids vs native C++ | `tools/wasm_check.mjs` |
-| **Total** | | **115 C++ + 14 C#** |
+| **Total** | | **121 C++ + 14 C#** |
 
 Everything runs with one command: `scripts\build_all.ps1 -Clean`.

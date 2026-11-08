@@ -31,6 +31,9 @@ public:
         Symmetry symmetry = Symmetry::Rotational;
         double lamp_flux_lm = 0.0;  ///< total lamp flux of lamp set 1
         double lor_percent = 0.0;   ///< light output ratio of the luminaire
+        double length_mm = 0.0;     ///< luminaire length (along C0), or diameter if width is 0
+        double width_mm = 0.0;      ///< luminaire width (along C90); 0 = round luminaire
+        double height_mm = 0.0;     ///< luminaire height
     };
 
     /// Builds a distribution from a full table: `c_deg` strictly increasing in [0, 360),

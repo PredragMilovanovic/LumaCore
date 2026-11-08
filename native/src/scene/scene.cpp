@@ -21,7 +21,19 @@ void Scene::set_room(double width_m, double depth_m, double height_m) {
 
 void Scene::add_light(const PointLight& light) { lights_.push_back(light); }
 
-void Scene::add_triangle(const Triangle& triangle) { triangles_.push_back(triangle); }
+void Scene::add_triangle(const Triangle& triangle) {
+    triangles_.push_back(triangle);
+    bvh_.reset();
+}
+
+void Scene::add_triangles(const std::vector<Triangle>& triangles) {
+    triangles_.insert(triangles_.end(), triangles.begin(), triangles.end());
+    bvh_.reset();
+}
+
+void Scene::build_acceleration() {
+    bvh_ = std::make_shared<const TriangleBvh>(triangles_);
+}
 
 void Scene::add_sphere(const Sphere& sphere) { spheres_.push_back(sphere); }
 
@@ -30,6 +42,7 @@ void Scene::add_box(const Vec3& min, const Vec3& max) {
     boxes_.reserve(boxes_.size() + 1);  // may throw; nothing modified yet
     triangles_.insert(triangles_.end(), box.begin(), box.end());
     boxes_.push_back(Aabb{min, max});  // cannot throw after the reserve
+    bvh_.reset();
 }
 
 bool Scene::inside_solid(const Vec3& p) const noexcept {
@@ -47,9 +60,15 @@ bool Scene::inside_solid(const Vec3& p) const noexcept {
 }
 
 bool Scene::occluded(const Ray& ray, double max_distance) const noexcept {
-    for (const Triangle& t : triangles_) {
-        if (intersect(ray, t, 0.0, max_distance)) {
+    if (bvh_) {
+        if (bvh_->any_hit(ray, max_distance)) {
             return true;
+        }
+    } else {
+        for (const Triangle& t : triangles_) {
+            if (intersect(ray, t, 0.0, max_distance)) {
+                return true;
+            }
         }
     }
     for (const Sphere& s : spheres_) {

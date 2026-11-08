@@ -83,6 +83,19 @@ The sample files in `samples/ldt/` are synthetic (defined by formulas in
 narrow 30° spot, and a linear office luminaire with a "batwing" distribution. Real manufacturer
 files work the same way.
 
+## Work plane and task areas
+
+The work plane is a horizontal calculation surface, by default at 0.75 m (desk height). Two
+consequences of the direct-light, point-source model matter when furniture is present:
+
+- **A point inside a closed object can never see a lamp.** Such points are excluded when the object
+  is a solid (boxes, spheres), and the web furniture is built so that nothing hollow straddles the
+  plane (details in [web.md](web.md)).
+- **Real shadow pockets exist.** Right behind a chair backrest, every lamp can be hidden: the
+  direct illuminance there really is 0 lx in this model, while a real room fills it with reflected
+  light. That is one reason EN 12464-1 judges illuminance and uniformity on the **task area**. The web
+  demo reports the desk working zones and tables separately from the whole plane.
+
 ## Metrics
 
 Over the measured (non-NaN) points of the grid:

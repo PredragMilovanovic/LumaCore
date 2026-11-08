@@ -6,6 +6,7 @@ add_library(lumacore_core STATIC
     src/geometry/shapes.cpp
     src/geometry/intersection.cpp
     src/geometry/primitives.cpp
+    src/geometry/bvh.cpp
     src/lighting/lighting.cpp
     src/lighting/photometry.cpp
     src/scene/scene.cpp

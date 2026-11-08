@@ -49,8 +49,33 @@ All threaded results were bit-identical to the sequential result.
   core than each of the 12 threads. Confirming this would need clock-frequency monitoring during the
   runs.
 
-## Not yet optimized
+## Occlusion: brute force vs bounding volume hierarchy
 
-The occlusion test checks every primitive (25 here) for every shadow ray. A bounding-volume
-hierarchy would make that cost logarithmic in scene size; it is a planned stretch goal, to be
-measured with this same benchmark before and after.
+Every shadow ray asks "is anything between this point and the lamp?". Testing every triangle costs
+time proportional to the triangle count; a bounding volume hierarchy (`TriangleBvh`: median split
+along the longest centroid axis, at most 4 triangles per leaf) skips whole groups of triangles a
+ray cannot hit.
+
+Setup: the office plus N random boxes (12 triangles each) **below the work plane**, all 24 threads,
+5 cm grid (6,000 points), 6 lamps. Every BVH result is compared bit for bit with brute force.
+
+| Triangles | Brute force | BVH | BVH build | Speedup |
+|---:|---:|---:|---:|---:|
+| 24 | 1.1 ms | 0.9 ms | 0.0 ms | 1.2× |
+| 1,224 | 20.3 ms | 1.1 ms | 0.3 ms | 17.8× |
+| 12,024 | 209.7 ms | 1.3 ms | 3.2 ms | **158.5×** |
+| 48,024 | 910.9 ms | 3.3 ms | 14.1 ms | **273.9×** |
+
+All results identical. Brute force grows linearly with the triangle count; the BVH barely grows.
+
+**Why the clutter is below the work plane.** The first version placed boxes up to 2 m high. Then
+almost every shadow ray was blocked, and an any-hit search stops at the first blocker, so brute
+force rarely tested all triangles: it even got *faster* from 12,000 to 48,000 triangles. In a real
+furnished room most light reaches the desks, so most shadow rays are unblocked and must be checked
+against everything. That is the case the BVH is for, and the case measured above.
+
+**In the browser** (WebAssembly, one thread, measured in Node.js 24 with the same build): the
+furnished office (4,904 shadow triangles, 14 luminaires, 14,000 points at 5 cm) takes a median of
+**51 ms** per recalculation while a luminaire is dragged, about 20 updates per second. The engine
+keeps the BVH while only lights change; when furniture moves it rebuilds it in **2.7 ms**. The 10 cm
+grid option has a quarter of the points and is correspondingly faster.

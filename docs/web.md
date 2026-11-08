@@ -36,6 +36,50 @@ native/src/**.cpp ──em++──► web/lumacore.js (WebAssembly, embedded) �
 - Quick links: `?luminaire=linear_batwing` (or `downlight_wide`, `spot_narrow`), optionally
   with `&rotation=90&dimming=80`, opens the office with every lamp set that way.
 
+## Furnished office (default scene)
+
+`web/furniture.js` builds furniture from code: workstations (desk, monitor, keyboard, office chair
+on a five-star base), a meeting table with four chairs, bookshelves with books, a tall cabinet,
+acoustic partitions and plants. **The triangles that are drawn are the triangles the engine uses for
+shadows**, with three documented exceptions that follow one physics rule: *nothing hollow may
+straddle the work plane* (a measured point inside a closed shape can never see a lamp):
+
+- Objects lying **on** the work plane (keyboard, mouse, monitor foot) are drawn but cast no shadow:
+  the plane is measured at their bottom face.
+- A closed part that **crosses** the plane (the chair backrest) casts its shadow through its
+  mid-plane, a zero-thickness panel, so no point can be trapped underneath or inside it.
+- Closed furniture (bookshelf, cabinet, partition) is a **solid block** for the engine, so points
+  inside it are "not measured", exactly like the boxes of the reference office. These items rotate in
+  90° steps because engine boxes are axis-aligned.
+
+Both rules came from diagnostics: the first furnished version had E_min = 0 lx from points trapped
+under a keyboard and between a chair backrest and its support bar.
+
+**Import a 3D model** (`.glb`, embedded `.gltf` or `.obj`): it is turned upright (glTF is Y-up),
+scaled to about 1.5 m if it is far too large or small, and placed on the floor. Every triangle casts
+shadows (limit 300,000). Free models, for example the Khronos glTF sample models, work.
+
+**Luminaires** are drawn at their real size from the EULUMDAT file (length, width and height:
+linear luminaires as suspended boxes, round ones as discs), with suspension wires.
+
+**Task areas.** EN 12464-1 sets office requirements on the task area. The tiles therefore show the
+desk working zones (full desk width, from the front edge to the monitor) and the meeting table,
+against the usual office target of 500 lx and U0 ≥ 0.60 (an indicative check). The whole work plane
+is shown below them; its minimum includes the true 0 lx pockets right behind chair backs, which a
+direct-light, point-source model produces.
+
+The default luminaire layout was chosen by comparing five layouts on these values. A finding: rows
+of luminaires behind the monitors give the lowest minimum, because a screen blocks the light from
+behind it onto the keyboard area. The chosen layout reaches 564 lx and U0 0.53 on the task areas, so
+uniformity misses the target, and the panel says so. The model is pessimistic: without inter-reflections
+and with hard shadows, a real room would be more uniform.
+
+**Light appearance** view: the work plane is shaded from dark to warm white by illuminance, as the
+lit surface would look, instead of the false-colour lux scale.
+
+**Rendering on demand.** The 3D view is redrawn only when something changes (camera, objects,
+results), not 60 times per second, which saves CPU and battery and lets headless tests finish.
+
 Boxes are stored by their exact corners, not centre and size, so the default office matches the
 C++ scenario bit for bit (`0.35 - 0.3` is not exactly `0.05` in floating point). A share link
 with the native `single` scenario's setup reproduces its average to all printed digits.

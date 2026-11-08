@@ -26,6 +26,7 @@ add_executable(lumacore_tests
     test_threaded_executor.cpp
     test_capi.cpp
     test_photometry.cpp
+    test_bvh.cpp
 )
 target_link_libraries(lumacore_tests PRIVATE lumacore::core lumacore::capi GTest::gtest_main)
 target_compile_definitions(lumacore_tests PRIVATE

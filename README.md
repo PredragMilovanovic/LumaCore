@@ -1,7 +1,9 @@
 # LumaCore
 
-**[▶ Live 3D demo](https://predragmilovanovic.github.io/LumaCore/)**: drag the lamps and watch the
-C++ engine (compiled to WebAssembly) recalculate the light in your browser. Try it with
+**[▶ Live 3D demo](https://predragmilovanovic.github.io/LumaCore/)**: a furnished open-plan office
+in your browser. Drag luminaires, desks, chairs or shelves and watch the C++ engine (compiled to
+WebAssembly) recalculate the light, including the shadows of every monitor, chair and plant. Import
+your own 3D model (`.glb`/`.obj`) and it casts real shadows too. Also try the original office with
 [linear office luminaires](https://predragmilovanovic.github.io/LumaCore/?luminaire=linear_batwing),
 [spotlights](https://predragmilovanovic.github.io/LumaCore/?luminaire=spot_narrow), or load your
 own manufacturer `.ldt` file. Move and resize the furniture, change the room, export the grid as
@@ -23,11 +25,15 @@ are on the 0.75 m work plane, with the 0.5 m border zone excluded. E_avg 414 lx,
 
 ### Interactive 3D in the browser
 
-The same C++ engine, compiled to WebAssembly, drives a three.js (WebGL) view of the room. Drag a
-lamp, and the lux map is recalculated by the C++ code on every frame.
+The same C++ engine, compiled to WebAssembly, drives a three.js (WebGL) view of the room. The
+furniture is about 5,000 shadow-casting triangles; with a bounding volume hierarchy, the whole
+office (14 luminaires, 14,000 points) is recalculated in about 50 ms on one browser thread while you
+drag. The panel evaluates the desk working zones against the usual office target (500 lx, U0 ≥ 0.60).
 **[Open the live demo](https://predragmilovanovic.github.io/LumaCore/)** · details: [docs/web.md](docs/web.md).
 
-![LumaCore Web: 3D room with lamps, obstacles and the live lux map](docs/images/web_demo.png)
+![LumaCore Web: furnished office, light appearance view](docs/images/web_furnished_appearance.png)
+
+![LumaCore Web: the same office with the lux map](docs/images/web_furnished_lux.png)
 
 ## Highlights
 
@@ -38,7 +44,8 @@ lamp, and the lux map is recalculated by the C++ code on every frame.
 | **Clean native/managed boundary** | A plain C API (13 functions, fixed-width types, opaque handle, caller-owned buffers, no exceptions across the boundary). The C# side uses a `SafeHandle` and turns native errors into exceptions. C++ and C# produce **exactly equal** grids. [Interop](docs/interop.md) |
 | **Real luminaire data** | Reads **EULUMDAT (.ldt)** photometry: all five symmetry types, bilinear interpolation in C and γ, rotation of the luminaire. Verified by integrating the distribution: luminaire flux = lamp flux × LOR within 0.1 %. |
 | **One engine, three platforms** | The unchanged C++ sources also compile to **WebAssembly** (Clang, `-Wall -Wextra -Werror`). Native C++, C# through the DLL, and the browser produce **bit-identical** results for isotropic sources, and agree to the last bit's rounding (4 × 10⁻¹⁶) with photometric luminaires, where MSVC's and Emscripten's `atan2`/`acos` may round differently. |
-| **Tested and reproducible** | 115 C++ tests (GoogleTest) and 14 C# tests (xUnit). One script builds and verifies everything from a clean checkout in about 40 s. No warnings at `/W4 /WX`. |
+| **Fast shadows (BVH)** | A bounding volume hierarchy over the occluder triangles makes shadow tests logarithmic: **159× faster at 12,000 triangles and 274× at 48,000**, with results bit-identical to testing every triangle (tested with 20,000 random rays plus edge, vertex and axis-parallel cases). [Benchmarks](docs/benchmarks.md) |
+| **Tested and reproducible** | 121 C++ tests (GoogleTest) and 14 C# tests (xUnit). One script builds and verifies everything from a clean checkout in about 40 s. No warnings at `/W4 /WX`. |
 
 ## Quick start
 
@@ -156,7 +163,7 @@ dotnet test managed\LumaCore.sln -c Release --no-build
 | `native/tests` | GoogleTest unit, property, concurrency and C API tests |
 | `native/apps`, `native/bench` | `lumacore_cli`, `lumacore_geometry_demo`, `lumacore_bench`, shared scenarios |
 | `managed/` | `LumaCore.Interop`, `LumaCore.Console`, `LumaCore.Interop.Tests` |
-| `native/wasm`, `web/` | WebAssembly bindings and the 3D browser front end (`index.html`, `app.js`, generated `lumacore.js`) |
+| `native/wasm`, `web/` | WebAssembly bindings and the 3D browser front end (`index.html`, `app.js`, `furniture.js`, generated `lumacore.js`) |
 | `samples/ldt` | synthetic EULUMDAT luminaires (downlight, spot, linear), made by `tools/make_sample_ldt.py` |
 | `tools/` | `heatmap.py`, `plot_bench.py`, `compare_grids.py`, `wasm_check.mjs`, `make_sample_ldt.py` |
 | `scripts/build_all.ps1` | build and verify everything |
@@ -168,8 +175,8 @@ dotnet test managed\LumaCore.sln -c Release --no-build
   points, which holds beyond about 5× the luminaire size. IES files are not read yet (EULUMDAT is).
 - **Direct light only.** No inter-reflections, so values are below those in a real room with
   light-coloured surfaces.
-- **Brute-force occlusion.** Every shadow ray tests every primitive. A bounding-volume hierarchy
-  would make large scenes fast; the benchmark is ready to measure it before and after.
+- **Hard shadows.** Long luminaires are single points, so monitor shadows have sharp edges.
+  Splitting a linear luminaire into 9 segments was tested: task-area U0 rises from 0.53 to 0.58.
 - **No GPU backend yet.** A CUDA executor would plug into the same `IExecutor` interface, with
   results compared against the CPU reference.
 - **Deployment.** `lumacore.dll` needs the Visual C++ 2015–2022 runtime (x64) on machines without
@@ -190,6 +197,7 @@ Built milestone by milestone (plan and acceptance criteria in [docs/plan.md](doc
 | M7a | WebAssembly build and interactive 3D web front end (WebGL) | done |
 | M7b | EULUMDAT photometry: reader, rotation, CLI, web (luminaire choice, `.ldt` upload, polar diagram) | done |
 | M7c | Editable room in the web demo (move/resize/add obstacles, room size), CSV/PNG export, share links | done |
-| M7d | Optional: BVH acceleration, CUDA, IES files | planned |
+| M7d | BVH acceleration; furnished office with procedural furniture; 3D model import; task-area evaluation; light-appearance view | done |
+| M7e | Optional: CUDA, IES files, inter-reflections | planned |
 
 Coding conventions and project rules: [CONTRIBUTING.md](CONTRIBUTING.md).

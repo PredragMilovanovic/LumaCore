@@ -45,6 +45,7 @@ $sources = @(
     'native/src/geometry/shapes.cpp',
     'native/src/geometry/intersection.cpp',
     'native/src/geometry/primitives.cpp',
+    'native/src/geometry/bvh.cpp',
     'native/src/lighting/lighting.cpp',
     'native/src/lighting/photometry.cpp',
     'native/src/scene/scene.cpp',

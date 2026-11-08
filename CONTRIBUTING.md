@@ -61,8 +61,15 @@ Do not change the model without updating docs/physics.md and the analytic tests.
 M1 skeleton+toolchain · M2 math/geometry · M3 lighting+sequential sim · M4 threading
 · M5 C API + C# · M6 bench+viz+docs · M7 (optional) CUDA/OpenGL.
 Current milestone is tracked at the top of README.md. Work one milestone at a time.
-Stretch priority after M6: EULUMDAT photometry > BVH > CUDA (float, CUDA ≥ 12.8 for sm_120) > OpenGL.
+Done beyond M6: WebAssembly + 3D web front end, EULUMDAT photometry, BVH, furniture and model import.
+Remaining options: CUDA (float, CUDA ≥ 12.8 for sm_120), IES files, inter-reflections.
+
+## Geometry rules
+- Occlusion results must not depend on the BVH: any change to `bvh.cpp` keeps `Bvh.*` and
+  `SceneAcceleration.*` tests green (bit-identical to brute force).
+- Call `Scene::build_acceleration()` after adding geometry; geometry changes discard the tree.
+- Web furniture: nothing hollow may straddle the work plane (see the header of `web/furniture.js`).
 
 ## Out of scope (unless explicitly requested)
-Inter-reflections/radiosity, BVH (until stretch), GUI frameworks, services,
+Inter-reflections/radiosity, GUI frameworks, services,
 extra dependencies beyond GoogleTest (and GLM only for comparison).

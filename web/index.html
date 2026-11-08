@@ -31,6 +31,12 @@
     .stat .k { color: var(--ink-2); font-size: 11px; }
     .stat .v { font-size: 18px; font-variant-numeric: tabular-nums; }
     .stat .v small { font-size: 11px; color: var(--ink-2); }
+    .stats-title { font-size: 12px; font-weight: 600; margin: 4px 0 6px; }
+    .stats-title span { font-weight: 400; color: var(--ink-2); }
+    .task { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; margin-bottom: 8px;
+      font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+    .task b { color: var(--ink); }
+    .task .verdict { display: inline-flex; gap: 4px; align-items: center; color: var(--ink); margin-top: 2px; }
     .meta { color: var(--ink-2); font-size: 12px; margin-bottom: 12px; font-variant-numeric: tabular-nums; }
     .row { margin: 10px 0; }
     .row label { display: flex; justify-content: space-between; color: var(--ink-2); font-size: 12px; }
@@ -52,6 +58,10 @@
     .section { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 8px 0 12px; }
     .section-title { font-weight: 600; font-size: 13px; }
     summary.section-title { cursor: pointer; }
+    .row.two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: end; }
+    .row.two label { display: block; color: var(--ink-2); font-size: 12px; margin-bottom: 2px; }
+    .buttons.tight { margin-top: 0; }
+    .legend .bar.appearance { background: linear-gradient(to right, #17150f, #6b5f4c, #c9b99a, #fff6e6) !important; }
     details.section[open] summary { margin-bottom: 4px; }
     .note { color: var(--ink-2); font-size: 11px; margin-top: 6px; }
     #share-url { width: 100%; margin-top: 6px; font-size: 11px; padding: 4px; }
@@ -90,13 +100,41 @@
     <h1>LumaCore Web</h1>
     <div class="sub">C++ lighting engine compiled to WebAssembly · <span id="version"></span></div>
 
+    <div class="row two">
+      <div>
+        <label for="preset">Scene</label>
+        <select id="preset">
+          <option value="furnished">Furnished open-plan office</option>
+          <option value="reference">Reference office (matches the C++ tests)</option>
+        </select>
+      </div>
+      <div>
+        <label for="view-mode">Work-plane view</label>
+        <select id="view-mode">
+          <option value="lux">Lux (false colour)</option>
+          <option value="appearance">Light appearance</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="stats-title" id="stats-title">Work plane</div>
     <div class="stats">
       <div class="stat"><div class="k">Average E<sub>avg</sub></div><div class="v" id="s-avg">–</div></div>
       <div class="stat"><div class="k">Uniformity U0</div><div class="v" id="s-u0">–</div></div>
       <div class="stat"><div class="k">Minimum E<sub>min</sub></div><div class="v" id="s-min">–</div></div>
       <div class="stat"><div class="k">Maximum E<sub>max</sub></div><div class="v" id="s-max">–</div></div>
     </div>
+    <div class="task" id="task-stats" hidden></div>
     <div class="meta" id="s-meta"></div>
+
+    <div class="section" id="furniture-section" hidden>
+      <div class="section-title">Selected furniture <span id="fur-label"></span></div>
+      <div class="row">
+        <label for="frot">Rotation <output id="frot-out"></output></label>
+        <input type="range" id="frot" min="0" max="345" step="15">
+      </div>
+      <div class="note" id="fur-note">Drag it in the 3D view to move it.</div>
+    </div>
 
     <div class="section" id="obstacle-section" hidden>
       <div class="section-title">Selected obstacle <span id="obs-label"></span></div>
@@ -169,6 +207,16 @@
     </div>
     <div class="row check"><input type="checkbox" id="shadows" checked><label for="shadows" style="color:inherit;font-size:13px">Shadows from obstacles</label></div>
 
+    <div class="row two">
+      <div>
+        <label for="fur-type">Furniture</label>
+        <select id="fur-type"></select>
+      </div>
+      <div class="buttons tight">
+        <button id="add-fur">Add</button>
+        <label class="filebtn" title="glTF (.glb) or OBJ model, in metres; Y-up models are turned upright">Import 3D model…<input type="file" id="model-file" accept=".glb,.gltf,.obj"></label>
+      </div>
+    </div>
     <div class="buttons">
       <button id="add">Add lamp</button>
       <button id="add-box">Add box</button>
@@ -212,8 +260,10 @@
     <div class="error" id="error"></div>
 
     <div class="hint">
-      <b>Drag a lamp or an obstacle</b> to move it (click it to select) · left-drag empty space to
-      rotate · right-drag to pan · scroll to zoom · hover the coloured plane to read lux. Luminaires use EULUMDAT (.ldt)
+      <b>Drag a lamp, a piece of furniture or an obstacle</b> to move it (click it to select) ·
+      left-drag empty space to rotate · right-drag to pan · scroll to zoom · hover the work plane
+      to read lux. Furniture and imported models cast shadows with their real triangles
+      (accelerated by a bounding volume hierarchy). Luminaires use EULUMDAT (.ldt)
       light distributions; the samples are synthetic, but any real manufacturer .ldt file works.<br>
       Direct light only, point-source approximation, hard shadows; 0.5 m border zone excluded.
     </div>
