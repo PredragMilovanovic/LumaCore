@@ -49,6 +49,17 @@
       font-variant-numeric: tabular-nums; margin-top: 2px; }
     .legend .key { display: flex; gap: 6px; align-items: center; color: var(--ink-2); font-size: 11px; margin-top: 6px; }
     .legend .swatch { width: 12px; height: 12px; background: var(--not-measured); border-radius: 2px; }
+    .section { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 8px 0 12px; }
+    .section-title { font-weight: 600; font-size: 13px; }
+    .section-title span { font-weight: 400; color: var(--ink-2); }
+    #polar { width: 100%; height: auto; margin-top: 6px; }
+    .polar-key { display: flex; flex-wrap: wrap; gap: 10px; color: var(--ink-2); font-size: 11px; align-items: center; }
+    .polar-key .ln { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--accent); margin-right: 4px; vertical-align: middle; }
+    .polar-key .ln.dashed { border-top: 2px dashed #eb6834; }
+    .filebtn { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 6px 10px;
+      cursor: pointer; font-size: 13px; }
+    .filebtn:hover { border-color: var(--ink-3); }
+    .filebtn input { display: none; }
     .hint { color: var(--ink-2); font-size: 12px; margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
     .error { color: #b3261e; font-size: 12px; margin-top: 8px; }
     #tip { position: fixed; pointer-events: none; background: var(--ink); color: #fff; font-size: 12px;
@@ -83,9 +94,33 @@
     </div>
     <div class="meta" id="s-meta"></div>
 
-    <div class="row">
-      <label for="cd">Selected lamp intensity <output id="cd-out"></output></label>
-      <input type="range" id="cd" min="100" max="2000" step="50">
+    <div class="section">
+      <div class="section-title">Selected lamp <span id="sel-label"></span></div>
+      <div class="row">
+        <label for="lum">Luminaire (light distribution)</label>
+        <select id="lum"></select>
+      </div>
+      <div class="row" id="row-cd">
+        <label for="cd">Intensity (same in every direction) <output id="cd-out"></output></label>
+        <input type="range" id="cd" min="100" max="2000" step="50">
+      </div>
+      <div class="row" id="row-dim" hidden>
+        <label for="dim">Dimming <output id="dim-out"></output></label>
+        <input type="range" id="dim" min="0" max="150" step="5">
+      </div>
+      <div class="row" id="row-rot" hidden>
+        <label for="rot">Rotation of the C0 axis <output id="rot-out"></output></label>
+        <input type="range" id="rot" min="0" max="180" step="5">
+      </div>
+      <canvas id="polar" width="268" height="200" aria-label="Polar intensity diagram of the selected luminaire"></canvas>
+      <div class="polar-key">
+        <span><i class="ln"></i>C0–C180</span><span><i class="ln dashed"></i>C90–C270</span>
+        <span id="polar-info"></span>
+      </div>
+      <div class="buttons">
+        <button id="apply-all">Apply to all lamps</button>
+        <label class="filebtn">Load .ldt file…<input type="file" id="ldt-file" accept=".ldt,.LDT"></label>
+      </div>
     </div>
     <div class="row">
       <label for="wp">Work-plane height <output id="wp-out"></output></label>
@@ -116,8 +151,9 @@
 
     <div class="hint">
       <b>Drag a lamp</b> to move it · left-drag empty space to rotate · right-drag to pan ·
-      scroll to zoom · hover the coloured plane to read lux.<br>
-      Direct light only, isotropic point sources, hard shadows; 0.5 m border zone excluded.
+      scroll to zoom · hover the coloured plane to read lux. Luminaires use EULUMDAT (.ldt)
+      light distributions; the samples are synthetic, but any real manufacturer .ldt file works.<br>
+      Direct light only, point-source approximation, hard shadows; 0.5 m border zone excluded.
     </div>
   </div>
 

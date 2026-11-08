@@ -18,6 +18,7 @@
 
 #include <cstddef>
 #include <exception>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -32,7 +33,10 @@ using emscripten::val;
 
 struct LightSpec {
     lc::Vec3 position;
-    double intensity_cd;
+    double intensity_cd;  // isotropic lights
+    int photometry_id;    // -1 = isotropic
+    double rotation_deg;
+    double dimming;
 };
 struct BoxSpec {
     lc::Vec3 min;
@@ -56,7 +60,57 @@ public:
 
     void clearLights() { lights_.clear(); }
     void addLight(double x, double y, double z, double intensity_cd) {
-        lights_.push_back({{x, y, z}, intensity_cd});
+        lights_.push_back({{x, y, z}, intensity_cd, -1, 0.0, 1.0});
+    }
+    /// A light using a distribution previously loaded with addPhotometry().
+    void addPhotometricLight(double x, double y, double z, int photometry_id, double rotation_deg,
+                             double dimming) {
+        lights_.push_back({{x, y, z}, 0.0, photometry_id, rotation_deg, dimming});
+    }
+
+    /// Parses EULUMDAT text. Returns an id >= 0, or -1 with the reason in lastError().
+    int addPhotometry(const std::string& ldt_text) {
+        try {
+            photometries_.push_back(
+                std::make_shared<const lc::Photometry>(lc::parse_eulumdat_string(ldt_text)));
+            last_error_.clear();
+            return static_cast<int>(photometries_.size()) - 1;
+        } catch (const std::exception& e) {
+            last_error_ = e.what();
+            return -1;
+        }
+    }
+    std::string lastError() const { return last_error_; }
+
+    /// { ok, name, manufacturer, symmetry, lampFluxLm, lorPercent, fluxLm, maxCd }
+    val photometryInfo(int id) const {
+        val out = val::object();
+        const lc::Photometry* p = find_photometry(id);
+        out.set("ok", p != nullptr);
+        if (p == nullptr) {
+            return out;
+        }
+        out.set("name", p->info().name);
+        out.set("manufacturer", p->info().manufacturer);
+        out.set("symmetry", static_cast<int>(p->info().symmetry));
+        out.set("lampFluxLm", p->info().lamp_flux_lm);
+        out.set("lorPercent", p->info().lor_percent);
+        out.set("fluxLm", p->luminous_flux_lm());
+        out.set("maxCd", p->max_intensity_cd());
+        return out;
+    }
+
+    /// Intensities [cd] in the half-plane C = c_deg for γ = 0..180° in `steps` equal steps
+    /// (steps + 1 values), for drawing polar diagrams. Empty if the id is unknown.
+    val polarCurve(int id, double c_deg, int steps) {
+        curve_.clear();
+        const lc::Photometry* p = find_photometry(id);
+        if (p != nullptr && steps > 0 && steps <= 3600) {
+            for (int k = 0; k <= steps; ++k) {
+                curve_.push_back(p->intensity_cd(c_deg, 180.0 * k / steps));
+            }
+        }
+        return val(emscripten::typed_memory_view(curve_.size(), curve_.data()));
     }
 
     void clearObstacles() {
@@ -113,7 +167,16 @@ private:
             scene.set_room(room_.width_m, room_.depth_m, room_.height_m);
         }
         for (const LightSpec& l : lights_) {
-            scene.add_light(lc::PointLight(l.position, l.intensity_cd));
+            if (l.photometry_id < 0) {
+                scene.add_light(lc::PointLight(l.position, l.intensity_cd));
+            } else {
+                if (find_photometry(l.photometry_id) == nullptr) {
+                    throw std::invalid_argument("unknown photometry id");
+                }
+                scene.add_light(lc::PointLight(l.position,
+                                               photometries_[static_cast<std::size_t>(l.photometry_id)],
+                                               l.rotation_deg, l.dimming));
+            }
         }
         for (const BoxSpec& b : boxes_) {
             scene.add_box(b.min, b.max);
@@ -124,6 +187,16 @@ private:
         return scene;
     }
 
+    const lc::Photometry* find_photometry(int id) const {
+        if (id < 0 || static_cast<std::size_t>(id) >= photometries_.size()) {
+            return nullptr;
+        }
+        return photometries_[static_cast<std::size_t>(id)].get();
+    }
+
+    std::vector<std::shared_ptr<const lc::Photometry>> photometries_;
+    std::string last_error_;
+    std::vector<double> curve_;
     lc::Room room_{0.0, 0.0, 0.0};
     bool has_room_ = false;
     std::vector<LightSpec> lights_;
@@ -143,6 +216,11 @@ EMSCRIPTEN_BINDINGS(lumacore) {
         .function("clearRoom", &Engine::clearRoom)
         .function("clearLights", &Engine::clearLights)
         .function("addLight", &Engine::addLight)
+        .function("addPhotometricLight", &Engine::addPhotometricLight)
+        .function("addPhotometry", &Engine::addPhotometry)
+        .function("lastError", &Engine::lastError)
+        .function("photometryInfo", &Engine::photometryInfo)
+        .function("polarCurve", &Engine::polarCurve)
         .function("clearObstacles", &Engine::clearObstacles)
         .function("addBox", &Engine::addBox)
         .function("addSphere", &Engine::addSphere)

@@ -3,9 +3,15 @@
 
 Usage:
     python tools/compare_grids.py results/office.csv results/office_csharp.csv
+    python tools/compare_grids.py a.csv b.csv --rel-tol 1e-12
 
-Exit code 0 only if both have the same shape, the same not-measured (NaN) cells and exactly
-equal values. Both writers use 17 significant digits, so doubles round-trip exactly.
+Exit code 0 only if both have the same shape, the same not-measured (NaN) cells and values that
+are exactly equal (default) or within the given relative tolerance. Both writers use 17
+significant digits, so doubles round-trip exactly.
+
+Why a tolerance exists: photometric lights convert directions to angles with atan2/acos. C++
+does not require these to be correctly rounded, and MSVC's and Emscripten's maths libraries can
+differ in the last bit. Isotropic scenes use no trigonometry and must match exactly.
 """
 
 import sys
@@ -24,6 +30,11 @@ def load(path: Path) -> np.ndarray:
 
 
 def main(argv) -> int:
+    rel_tol = 0.0
+    if "--rel-tol" in argv:
+        k = argv.index("--rel-tol")
+        rel_tol = float(argv[k + 1])
+        argv = argv[:k] + argv[k + 2:]
     if len(argv) != 3:
         print(__doc__)
         return 2
@@ -39,6 +50,9 @@ def main(argv) -> int:
     rel = diff / np.maximum(np.abs(a[~nan_a]), 1e-300)
     print(f"{a.size} cells, {nan_a.sum()} not measured, {(diff == 0).sum()} exactly equal, "
           f"max abs diff {diff.max():.3g} lx, max rel diff {rel.max():.3g}")
+    if rel_tol > 0.0:
+        print(f"tolerance: relative {rel_tol:g}")
+        return 0 if rel.max() <= rel_tol else 1
     return 0 if diff.max() == 0.0 else 1
 
 

@@ -104,6 +104,12 @@ if ($Web) {
     Step 'Compare C++ and WebAssembly grids (must be exactly equal)' {
         python tools\compare_grids.py results\office.csv results\office_wasm.csv
     }
+    Step 'Compare C++ and WebAssembly with EULUMDAT luminaires (last-bit tolerance)' {
+        .\build\bin\Release\lumacore_cli.exe office --ldt samples\ldt\linear_batwing.ldt --out results\office_linear_batwing.csv | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            python tools\compare_grids.py results\office_linear_batwing.csv results\office_linear_batwing_wasm.csv --rel-tol 1e-12
+        }
+    }
 }
 
 $timer.Stop()

@@ -46,6 +46,7 @@ $sources = @(
     'native/src/geometry/intersection.cpp',
     'native/src/geometry/primitives.cpp',
     'native/src/lighting/lighting.cpp',
+    'native/src/lighting/photometry.cpp',
     'native/src/scene/scene.cpp',
     'native/src/scene/measurement_grid.cpp',
     'native/src/simulation/simulation.cpp',
@@ -72,3 +73,8 @@ if ($LASTEXITCODE -ne 0) { throw "em++ failed (exit code $LASTEXITCODE)" }
 
 $size = (Get-Item web/lumacore.js).Length / 1KB
 Write-Host ("wrote web/lumacore.js ({0:N0} KB)" -f $size) -ForegroundColor Green
+
+# The web page offers the sample luminaires; the site is served from web/ only.
+New-Item -ItemType Directory -Force web/ldt | Out-Null
+Copy-Item samples/ldt/*.ldt web/ldt/ -Force
+Write-Host "copied samples/ldt/*.ldt to web/ldt/"

@@ -6,7 +6,7 @@
 // Usage (from the repository root, Node 18+):
 //   node tools/wasm_check.mjs
 
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -42,17 +42,40 @@ console.log(`LumaCore WebAssembly engine ${lc.version()}`);
   engine.delete();
 }
 
-// 3. Office scenario, same as native/apps/common/scenarios.cpp with a 5 cm grid.
+// 3. EULUMDAT samples: luminaire flux = lamp flux x LOR (the generator normalizes them so).
+const ldtText = (name) => readFileSync(join(root, 'samples', 'ldt', name), 'utf8');
 {
   const engine = new lc.Engine();
+  for (const name of ['downlight_wide.ldt', 'spot_narrow.ldt', 'linear_batwing.ldt']) {
+    const id = engine.addPhotometry(ldtText(name));
+    const info = engine.photometryInfo(id);
+    const expected = info.ok ? info.lampFluxLm * info.lorPercent / 100 : NaN;
+    check(`${name}: flux ${info.ok ? info.fluxLm.toFixed(1) : '?'} lm = lamp flux x LOR`,
+      id >= 0 && Math.abs(info.fluxLm - expected) < 1e-3 * expected, id < 0 ? engine.lastError() : `expected ${expected}`);
+  }
+  const bad = engine.addPhotometry('not an ldt file');
+  check('malformed LDT is reported', bad === -1 && /EULUMDAT line/.test(engine.lastError()), engine.lastError());
+  engine.delete();
+}
+
+// 4. Office scenario, same as native/apps/common/scenarios.cpp with a 5 cm grid:
+//    isotropic lamps, then the linear luminaire (compare with lumacore_cli --ldt).
+function runOffice(photometryText, csvName, label) {
+  const engine = new lc.Engine();
   engine.setRoom(6, 4, 3);
-  for (const y of [1, 3]) for (const x of [1, 3, 5]) engine.addLight(x, y, 2.8, 800);
+  const id = photometryText ? engine.addPhotometry(photometryText) : -1;
+  for (const y of [1, 3]) {
+    for (const x of [1, 3, 5]) {
+      if (id >= 0) engine.addPhotometricLight(x, y, 2.8, id, 0, 1);
+      else engine.addLight(x, y, 2.8, 800);
+    }
+  }
   engine.addBox(0.05, 2.6, 0.0, 0.65, 3.95, 2.0);
   engine.addBox(2.9, 0.2, 0.0, 3.1, 1.6, 1.6);
   engine.addSphere(4.5, 2.6, 1.9, 0.25);
   const [x0, y0, x1, y1, z, nx, ny] = [0.5, 0.5, 5.5, 3.5, 0.75, 100, 60];
   const r = engine.simulate(x0, y0, x1, y1, z, nx, ny, true);
-  check('office simulation runs', r.ok, r.ok ? `E_avg ${r.avgLux.toFixed(1)} lx, ${r.elapsedMs.toFixed(1)} ms` : r.error);
+  check(`${label} simulation runs`, r.ok, r.ok ? `E_avg ${r.avgLux.toFixed(1)} lx, ${r.elapsedMs.toFixed(1)} ms` : r.error);
 
   if (r.ok) {
     const lines = [
@@ -70,11 +93,13 @@ console.log(`LumaCore WebAssembly engine ${lc.version()}`);
       }
     }
     mkdirSync(join(root, 'results'), { recursive: true });
-    writeFileSync(join(root, 'results', 'office_wasm.csv'), lines.join('\n') + '\n');
-    console.log('wrote results/office_wasm.csv (compare: python tools/compare_grids.py results/office.csv results/office_wasm.csv)');
+    writeFileSync(join(root, 'results', csvName), lines.join('\n') + '\n');
+    console.log(`wrote results/${csvName}`);
   }
   engine.delete();
 }
+runOffice(null, 'office_wasm.csv', 'office (isotropic)');
+runOffice(ldtText('linear_batwing.ldt'), 'office_linear_batwing_wasm.csv', 'office (linear luminaire)');
 
 if (failures > 0) {
   console.error(`${failures} check(s) failed`);

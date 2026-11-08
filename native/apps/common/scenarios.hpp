@@ -2,10 +2,12 @@
 
 // Built-in lighting scenarios shared by lumacore_cli and lumacore_bench.
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
+#include "lumacore/lighting/photometry.hpp"
 #include "lumacore/scene/measurement_grid.hpp"
 #include "lumacore/scene/scene.hpp"
 
@@ -47,7 +49,11 @@ struct Scenario {
 /// "office" or "single"; nullopt for an unknown name.
 [[nodiscard]] std::optional<Scenario> find_scenario(const std::string& name);
 
-[[nodiscard]] Scene build_scene(const Scenario& scenario);
+/// Builds the engine scene. With a photometry, every lamp uses that measured distribution
+/// (rotated about the vertical axis by rotation_deg) instead of its isotropic intensity.
+[[nodiscard]] Scene build_scene(const Scenario& scenario,
+                                std::shared_ptr<const Photometry> photometry = nullptr,
+                                double rotation_deg = 0.0);
 
 /// Horizontal work-plane grid covering the room minus a border band of `border_m` along
 /// every wall, with cells of about `cell_m`. Throws std::invalid_argument for a cell size

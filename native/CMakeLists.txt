@@ -7,6 +7,7 @@ add_library(lumacore_core STATIC
     src/geometry/intersection.cpp
     src/geometry/primitives.cpp
     src/lighting/lighting.cpp
+    src/lighting/photometry.cpp
     src/scene/scene.cpp
     src/scene/measurement_grid.cpp
     src/simulation/simulation.cpp

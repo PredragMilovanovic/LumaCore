@@ -25,8 +25,11 @@ add_executable(lumacore_tests
     test_simulation.cpp
     test_threaded_executor.cpp
     test_capi.cpp
+    test_photometry.cpp
 )
 target_link_libraries(lumacore_tests PRIVATE lumacore::core lumacore::capi GTest::gtest_main)
+target_compile_definitions(lumacore_tests PRIVATE
+    LUMACORE_SAMPLES_DIR="${PROJECT_SOURCE_DIR}/samples")
 lumacore_set_warnings(lumacore_tests)
 
 include(GoogleTest)

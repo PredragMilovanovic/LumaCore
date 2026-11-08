@@ -35,7 +35,8 @@ dΦ = I dΩ and E = dΦ/dA = I cos θ / r².
 
 ## Assumptions
 
-1. **Isotropic point sources.** I is the same in every direction.
+1. **Point sources.** Each luminaire is a point: either isotropic (I the same in every direction)
+   or with a measured intensity distribution I(C, γ) from an EULUMDAT file (see below).
 2. **Direct light only.** No inter-reflections from walls, ceiling or furniture, so there is
    no indirect component. Results are lower than in a real room with light-coloured surfaces.
 3. **Opaque, binary occlusion.** A source is either fully visible from the point or fully
@@ -49,11 +50,38 @@ dΦ = I dΩ and E = dΦ/dA = I cos θ / r².
 | Limitation | Handling |
 |---|---|
 | The inverse-square law holds only far from a luminaire: roughly at distances ≥ 5× its largest dimension (the photometric-distance rule). | Treat results close to a luminaire with care. Points nearer than `kMinLightDistance` (1 mm) get 0 from that source, because E → ∞ as r → 0. |
-| Real luminaires are not isotropic: their intensity depends on direction, I(C, γ). | Not modelled. Next step: read EULUMDAT (.ldt) or IES files and look up I per direction (see docs/plan.md, stretch goals). |
+| Real luminaires are not isotropic: their intensity depends on direction, I(C, γ). | Supported through EULUMDAT (.ldt) files (next section). The luminaire is still treated as a point, which is accurate beyond about 5× its largest dimension. |
 | A measurement point inside a solid obstacle (e.g. a work plane cutting through a 2 m cabinet) is not a real surface. | Such points are reported as **NaN (not measured)** and excluded from E_min, E_avg and U0. Points exactly on a surface (e.g. a desk top) are still measured. |
 | Gaps between furniture and walls can be in full shadow, so E_min = 0 in the direct-light model. | The CLI excludes a **0.5 m border zone** along the walls by default, as is usual for working-area calculations (EN 12464-1). Change it with `--border`. |
 | A shadow ray that starts exactly on a surface may hit that same surface ("shadow acne"). | Shadow rays start `kShadowBias` (1 µm) off the surface along the normal and stop 1 µm short of the source. Tested in `Shadows.SurfaceDoesNotShadowItself`. |
 | No maintenance factor, daylight or colour. | Out of scope. |
+
+## Luminaire photometry (EULUMDAT)
+
+Manufacturers publish each luminaire's light distribution as an EULUMDAT (`.ldt`) file, the
+European standard format. LumaCore reads it (`native/src/lighting/photometry.cpp`) and uses the
+intensity toward each measurement point instead of a constant I.
+
+- **Angles (C-γ system).** γ = 0° points straight down, 90° is horizontal, 180° straight up.
+  C = 0° is the luminaire's reference axis (its length, for a linear luminaire); C increases
+  counter-clockwise seen from above. In the scene, a luminaire hangs pointing down and can be
+  rotated about the vertical axis (`rotation_deg` = scene angle of its C0 axis from +X).
+- **Units.** Files store cd per 1000 lm of lamp flux; LumaCore multiplies by lamp flux / 1000
+  (lamp set 1) and the file's conversion factor, so the engine works in candela.
+- **Symmetry.** Files may store only part of the distribution: one plane (rotationally
+  symmetric), half (mirror-symmetric to C0–C180 or C90–C270), or a quadrant (symmetric to both).
+  The reader expands every case to the full 0–360° range.
+- **Between measured angles** the intensity is interpolated linearly in γ and in C (wrapping
+  around 360°). Directions beyond the last measured γ get 0 (e.g. above a downlight measured
+  to 90°).
+- **Check: luminous flux.** Integrating I over the sphere (Φ = ∫∫ I sin γ dγ dC) gives the
+  luminaire's flux, which must equal lamp flux × light output ratio. For the three sample files
+  it agrees within 0.1 %.
+
+The sample files in `samples/ldt/` are synthetic (defined by formulas in
+`tools/make_sample_ldt.py`, not measurements of real products): a wide Lambertian downlight, a
+narrow 30° spot, and a linear office luminaire with a "batwing" distribution. Real manufacturer
+files work the same way.
 
 ## Metrics
 
@@ -83,6 +111,10 @@ Over the measured (non-NaN) points of the grid:
 | Flux through a square of half-side a, at distance h | Φ = I · Ω with Ω = 4 · asin(a² / (a² + h²)); midpoint sum within 1e-4 | `Simulation.FluxThroughSquareMatchesSolidAngle` |
 | Light centred over a square grid | field symmetric in x, y and the diagonal | `Simulation.CenteredLightGivesSymmetricField` |
 | Obstacle between source and point | that source contributes 0; others unaffected | `Shadows.*` |
+| EULUMDAT symmetry expansion (all 5 types) | mirrored planes return the stored values | `Photometry.Symmetry*`, `Photometry.NoSymmetryWrapsAround360` |
+| Luminaire flux of the sample files | ∫∫ I sin γ dγ dC = lamp flux × LOR, within 0.1 % | `Photometry.SampleFilesConserveFlux` |
+| Lambertian downlight, offset d | E = I0 h² / (h² + d²)² | `PhotometricLight.IlluminanceUnderALambertianDownlight` |
+| Isotropic `.ldt` file | same E as an isotropic light, within 1e-12 | `PhotometricLight.IsotropicFileMatchesIsotropicLight` |
 
 The CLI's `single` scenario also compares every grid point with the closed form and prints
 the largest relative error. It is about 6e-16, i.e. double-precision rounding.

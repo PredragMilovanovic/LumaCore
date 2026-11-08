@@ -31,10 +31,14 @@ std::optional<Scenario> find_scenario(const std::string& name) {
     return std::nullopt;
 }
 
-Scene build_scene(const Scenario& sc) {
+Scene build_scene(const Scenario& sc, std::shared_ptr<const Photometry> photometry,
+                  double rotation_deg) {
     Scene scene;
     scene.set_room(sc.width_m, sc.depth_m, sc.height_m);
-    for (const Lamp& l : sc.lamps) scene.add_light(PointLight(l.position, l.intensity_cd));
+    for (const Lamp& l : sc.lamps) {
+        scene.add_light(photometry ? PointLight(l.position, photometry, rotation_deg)
+                                   : PointLight(l.position, l.intensity_cd));
+    }
     for (const Box& b : sc.boxes) scene.add_box(b.min, b.max);
     for (const Ball& b : sc.balls) scene.add_sphere(Sphere(b.center, b.radius));
     return scene;

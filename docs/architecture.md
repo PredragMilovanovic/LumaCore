@@ -27,7 +27,7 @@ flowchart LR
 |---|---|---|
 | math | value types and pure functions; `constexpr` where possible | `Vec3`, `Ray` (unit-direction invariant), `constants.hpp` (all tolerances in one place) |
 | geometry | primitives with validated construction; ray queries returning `std::optional<Hit>` | `intersection.cpp`: plane, sphere (cancellation-free roots), Möller–Trumbore triangle |
-| lighting | the photometric model | `point_illuminance()` |
+| lighting | the photometric model; luminaire light distributions | `point_illuminance()`, `PointLight`, `Photometry` + EULUMDAT reader |
 | scene | owns lights and occluders by value; any-hit occlusion; inside-solid test | `Scene`, `Room`, `MeasurementGrid` |
 | simulation | one per-row kernel shared by every executor; statistics | `compute_rows()`, `simulate()`, `simulate_into()`, `IExecutor` |
 | parallel | how rows are scheduled | `SequentialExecutor`, `ThreadedExecutor` |
@@ -89,8 +89,10 @@ sequenceDiagram
 | Property (C++) | seeded random checks: Lagrange identity, hit points on surfaces, watertight boxes, superposition | part of the 87 |
 | Concurrency (C++) | threaded = sequential, bit for bit, for 1–64 threads; repeated runs; every cell written once | 5 |
 | C API (C++) | every export through the DLL: null and invalid arguments, buffers, per-thread errors | 10 |
+| Photometry (C++) | EULUMDAT parsing, all symmetry types, interpolation, errors with line numbers, rotation, flux of the sample files, illuminance against closed forms | 13 |
 | Interop (C#) | struct layouts, closed-form values through P/Invoke, errors, dispose, 2000 create/destroy cycles | 14 |
 | End to end | C++ CLI vs C# console: identical grids (`tools/compare_grids.py`) | 1 script |
-| **Total** | | **102 C++ + 14 C#** |
+| WebAssembly (Node.js) | closed form, error values, sample-file flux, office grids vs native C++ | `tools/wasm_check.mjs` |
+| **Total** | | **115 C++ + 14 C#** |
 
 Everything runs with one command: `scripts\build_all.ps1 -Clean`.

@@ -2,7 +2,11 @@
 // illuminance grid as CSV (consumed by tools/heatmap.py).
 //
 // Usage: lumacore_cli [office|single] [--cell <m>] [--border <m>] [--no-shadows]
-//                    [--threads <n> | --sequential] [--out <file.csv>]
+//                    [--threads <n> | --sequential] [--ldt <file> [--rotation <deg>]]
+//                    [--out <file.csv>]
+//
+// --ldt:     give every lamp the measured distribution from an EULUMDAT file
+//            (e.g. samples/ldt/linear_batwing.ldt); --rotation turns its C0 axis.
 //
 // --border:  width of the band along the walls excluded from the calculation area
 //            (default 0.5 m, the border zone used for working areas in EN 12464-1).
@@ -115,6 +119,8 @@ int run(int argc, char** argv) {
     bool sequential = false;
     long threads = 0;
     std::string out_path;
+    std::string ldt_path;
+    double rotation_deg = 0.0;
 
     for (int k = 1; k < argc; ++k) {
         const std::string arg = argv[k];
@@ -126,6 +132,10 @@ int run(int argc, char** argv) {
             shadows = false;
         } else if (arg == "--threads" && k + 1 < argc) {
             threads = std::atol(argv[++k]);
+        } else if (arg == "--ldt" && k + 1 < argc) {
+            ldt_path = argv[++k];
+        } else if (arg == "--rotation" && k + 1 < argc) {
+            rotation_deg = std::atof(argv[++k]);
         } else if (arg == "--sequential") {
             sequential = true;
         } else if (arg == "--out" && k + 1 < argc) {
@@ -145,8 +155,13 @@ int run(int argc, char** argv) {
         out_path = "results/" + scenario_name + ".csv";
     }
 
-    const Scenario sc = *lc::apps::find_scenario(scenario_name);
-    const lc::Scene scene = lc::apps::build_scene(sc);
+    Scenario sc = *lc::apps::find_scenario(scenario_name);
+    std::shared_ptr<const lc::Photometry> photometry;
+    if (!ldt_path.empty()) {
+        photometry = std::make_shared<const lc::Photometry>(lc::load_eulumdat(ldt_path));
+        sc.name += " + " + photometry->info().name;
+    }
+    const lc::Scene scene = lc::apps::build_scene(sc, photometry, rotation_deg);
     const lc::MeasurementGrid grid = lc::apps::workplane_grid(sc, cell_m, border_m);
 
     std::unique_ptr<lc::IExecutor> executor;
@@ -173,6 +188,12 @@ int run(int argc, char** argv) {
               << border_m << " m border zone excluded)\n"
               << "  measured      " << r.stats.valid_points << " points ("
               << grid.point_count() - r.stats.valid_points << " inside obstacles excluded)\n"
+              << "  luminaires    "
+              << (photometry ? photometry->info().name + " (" +
+                                   std::to_string(static_cast<int>(photometry->luminous_flux_lm())) +
+                                   " lm each, from " + ldt_path + ")"
+                             : std::string("isotropic point sources"))
+              << "\n"
               << "  lights        " << scene.lights().size() << ", occluders "
               << scene.occluder_count() << " primitives, shadows " << (shadows ? "on" : "off")
               << "\n"
@@ -184,7 +205,7 @@ int run(int argc, char** argv) {
               << "  U0 = Emin/Eavg " << r.stats.uniformity_u0 << "\n"
               << std::setprecision(2)
               << "  time          " << r.elapsed_ms << " ms (" << executor_label << ")\n";
-    if (sc.boxes.empty() && sc.balls.empty()) {
+    if (sc.boxes.empty() && sc.balls.empty() && !photometry) {
         std::cout << std::scientific << std::setprecision(2)
                   << "  max rel. error vs closed form: "
                   << max_relative_error_vs_analytic(sc, grid, r) << "\n";
