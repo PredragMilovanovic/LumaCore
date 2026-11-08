@@ -1,6 +1,7 @@
-# LumaCore — C++ Computational Lighting Engine
-Educational direct-illumination engine: point lights, 3D room geometry, ray-cast shadows,
-illuminance (lux) on a measurement grid. C++17 core → C ABI DLL → C# (.NET Framework 4.8) via P/Invoke.
+# Contributing to LumaCore
+Project conventions, build commands and rules for changes. LumaCore is an educational
+direct-illumination engine: point lights, 3D room geometry, ray-cast shadows, illuminance (lux) on a
+measurement grid. C++17 core → C ABI DLL → C# (.NET Framework 4.8) via P/Invoke, and WebAssembly.
 Full plan, risks and acceptance criteria: docs/plan.md.
 
 ## Build
