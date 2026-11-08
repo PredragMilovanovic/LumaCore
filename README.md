@@ -4,7 +4,8 @@
 C++ engine (compiled to WebAssembly) recalculate the light in your browser. Try it with
 [linear office luminaires](https://predragmilovanovic.github.io/LumaCore/?luminaire=linear_batwing),
 [spotlights](https://predragmilovanovic.github.io/LumaCore/?luminaire=spot_narrow), or load your
-own manufacturer `.ldt` file.
+own manufacturer `.ldt` file. Move and resize the furniture, change the room, export the grid as
+CSV, and share the whole design as a link.
 
 A C++17 engine that computes **direct illuminance (lux)** from point light sources on a
 measurement grid inside a 3D room, with ray-cast shadows. It runs sequentially or on all CPU
@@ -188,6 +189,7 @@ Built milestone by milestone (plan and acceptance criteria in [docs/plan.md](doc
 | M6 | Build-and-verify script, architecture and documentation | done |
 | M7a | WebAssembly build and interactive 3D web front end (WebGL) | done |
 | M7b | EULUMDAT photometry: reader, rotation, CLI, web (luminaire choice, `.ldt` upload, polar diagram) | done |
-| M7c | Optional: editable room, BVH, CUDA | planned |
+| M7c | Editable room in the web demo (move/resize/add obstacles, room size), CSV/PNG export, share links | done |
+| M7d | Optional: BVH acceleration, CUDA, IES files | planned |
 
 Coding conventions and project rules: [CONTRIBUTING.md](CONTRIBUTING.md).

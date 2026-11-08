@@ -22,8 +22,23 @@ native/src/**.cpp ──em++──► web/lumacore.js (WebAssembly, embedded) �
   computer; it is parsed by the C++ engine in the browser). Set dimming and the rotation of the
   C0 axis; the polar diagram shows the C0–C180 and C90–C270 planes, and asymmetric luminaires
   show their C0 axis as a bar in 3D. "Apply to all lamps" copies the settings.
-- Shareable links: `?luminaire=linear_batwing` (or `downlight_wide`, `spot_narrow`), optionally
-  with `&rotation=90&dimming=80`, opens the room with every lamp set that way.
+- Editable room: click an obstacle to select it, drag it to move it, resize it with sliders
+  (boxes: width, depth, height; spheres: radius and height), add desks ("Add box"), remove
+  anything. Change the room size; lamps stay 0.2 m below the ceiling and everything is kept
+  inside the room.
+- Export: **Download CSV** writes the grid in the same format as `lumacore_cli`, so
+  `tools/heatmap.py` and `tools/compare_grids.py` work on it. **Download 3D image** saves the
+  view as PNG.
+- **Copy share link** puts the whole design (room, lamps, luminaires, dimming, rotation,
+  obstacles, settings) in the URL fragment (`#s=…`, base64url JSON). Opening the link restores
+  it. Every value is range-checked when a link is read, and a damaged link falls back to the
+  default office with a message. Uploaded `.ldt` files are not included (too large for a URL).
+- Quick links: `?luminaire=linear_batwing` (or `downlight_wide`, `spot_narrow`), optionally
+  with `&rotation=90&dimming=80`, opens the office with every lamp set that way.
+
+Boxes are stored by their exact corners, not centre and size, so the default office matches the
+C++ scenario bit for bit (`0.35 - 0.3` is not exactly `0.05` in floating point). A share link
+with the native `single` scenario's setup reproduces its average to all printed digits.
 
 ## Why single-threaded in the browser
 

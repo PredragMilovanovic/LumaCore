@@ -51,6 +51,10 @@
     .legend .swatch { width: 12px; height: 12px; background: var(--not-measured); border-radius: 2px; }
     .section { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 8px 0 12px; }
     .section-title { font-weight: 600; font-size: 13px; }
+    summary.section-title { cursor: pointer; }
+    details.section[open] summary { margin-bottom: 4px; }
+    .note { color: var(--ink-2); font-size: 11px; margin-top: 6px; }
+    #share-url { width: 100%; margin-top: 6px; font-size: 11px; padding: 4px; }
     .section-title span { font-weight: 400; color: var(--ink-2); }
     #polar { width: 100%; height: auto; margin-top: 6px; }
     .polar-key { display: flex; flex-wrap: wrap; gap: 10px; color: var(--ink-2); font-size: 11px; align-items: center; }
@@ -94,7 +98,36 @@
     </div>
     <div class="meta" id="s-meta"></div>
 
-    <div class="section">
+    <div class="section" id="obstacle-section" hidden>
+      <div class="section-title">Selected obstacle <span id="obs-label"></span></div>
+      <div id="box-rows">
+        <div class="row">
+          <label for="bw">Width (x) <output id="bw-out"></output></label>
+          <input type="range" id="bw" min="0.1" max="4" step="0.05">
+        </div>
+        <div class="row">
+          <label for="bd">Depth (y) <output id="bd-out"></output></label>
+          <input type="range" id="bd" min="0.1" max="4" step="0.05">
+        </div>
+        <div class="row">
+          <label for="bh">Height <output id="bh-out"></output></label>
+          <input type="range" id="bh" min="0.1" max="3" step="0.05">
+        </div>
+      </div>
+      <div id="sphere-rows">
+        <div class="row">
+          <label for="sr">Radius <output id="sr-out"></output></label>
+          <input type="range" id="sr" min="0.05" max="1" step="0.05">
+        </div>
+        <div class="row">
+          <label for="sz">Height of centre <output id="sz-out"></output></label>
+          <input type="range" id="sz" min="0.1" max="3" step="0.05">
+        </div>
+      </div>
+      <div class="note">Drag the obstacle in the 3D view to move it.</div>
+    </div>
+
+    <div class="section" id="lamp-section">
       <div class="section-title">Selected lamp <span id="sel-label"></span></div>
       <div class="row">
         <label for="lum">Luminaire (light distribution)</label>
@@ -138,9 +171,38 @@
 
     <div class="buttons">
       <button id="add">Add lamp</button>
+      <button id="add-box">Add box</button>
       <button id="remove">Remove selected</button>
       <button id="reset">Reset</button>
     </div>
+
+    <details class="section">
+      <summary class="section-title">Room size</summary>
+      <div class="row">
+        <label for="rw">Width (x) <output id="rw-out"></output></label>
+        <input type="range" id="rw" min="2" max="12" step="0.5">
+      </div>
+      <div class="row">
+        <label for="rd">Depth (y) <output id="rd-out"></output></label>
+        <input type="range" id="rd" min="2" max="12" step="0.5">
+      </div>
+      <div class="row">
+        <label for="rh">Height <output id="rh-out"></output></label>
+        <input type="range" id="rh" min="2.2" max="5" step="0.1">
+      </div>
+      <div class="note">Lamps hang 0.2 m below the ceiling and are kept inside the room.</div>
+    </details>
+
+    <details class="section" open>
+      <summary class="section-title">Export and share</summary>
+      <div class="buttons">
+        <button id="dl-csv">Download CSV</button>
+        <button id="dl-png">Download 3D image</button>
+        <button id="share">Copy share link</button>
+      </div>
+      <div class="note" id="share-note">The link contains the whole design: room, lamps, luminaires and obstacles.</div>
+      <input type="text" id="share-url" readonly hidden aria-label="Share link">
+    </details>
 
     <div class="legend">
       <div class="bar" id="legend-bar"></div>
@@ -150,8 +212,8 @@
     <div class="error" id="error"></div>
 
     <div class="hint">
-      <b>Drag a lamp</b> to move it · left-drag empty space to rotate · right-drag to pan ·
-      scroll to zoom · hover the coloured plane to read lux. Luminaires use EULUMDAT (.ldt)
+      <b>Drag a lamp or an obstacle</b> to move it (click it to select) · left-drag empty space to
+      rotate · right-drag to pan · scroll to zoom · hover the coloured plane to read lux. Luminaires use EULUMDAT (.ldt)
       light distributions; the samples are synthetic, but any real manufacturer .ldt file works.<br>
       Direct light only, point-source approximation, hard shadows; 0.5 m border zone excluded.
     </div>

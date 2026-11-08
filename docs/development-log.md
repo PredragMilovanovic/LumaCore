@@ -16,6 +16,7 @@ each was resolved. Every milestone ended only when its acceptance criteria (in
 | M6 Polish | one-command build-and-verify script, architecture and interop docs, README | all 13 steps from a clean checkout in about 40 s |
 | M7a Web | engine compiled to WebAssembly (Emscripten), interactive 3D front end (three.js/WebGL) | WebAssembly = native exactly; headless-browser screenshot |
 | M7b Photometry | EULUMDAT reader (5 symmetry types), luminaire rotation and dimming, `--ldt` in the CLI, luminaire choice, `.ldt` upload and polar diagram on the web | 115 tests; sample flux = lamp flux × LOR within 0.1 %; web averages = CLI |
+| M7c Editable room | move/resize/add obstacles, room size, CSV and PNG export, share links with the whole design | headless tests: default office, a share link equal to the native `single` scenario, luminaire links, damaged links |
 
 ## Problems found and how they were solved
 
@@ -61,7 +62,13 @@ These came from checking results against expectations, not from the compiler.
    libraries round the last bit differently. The comparison tool keeps exact equality as the
    default and gained an explicit `--rel-tol` option for this documented case.
 
-8. **Smaller issues caught before committing.**
+8. **A missing link parameter turned every lamp off (M7c), caught by a test before release.**
+   `?luminaire=linear_batwing` without `&dimming=` gave 0 lx: `Number(null)` is `0` in
+   JavaScript, so "missing" was read as "dimming 0 %". The input helper now treats null, undefined
+   and empty values as missing. The same tests confirmed `&dimming=50` gives exactly half the
+   illuminance.
+
+9. **Smaller issues caught before committing.**
    A `const` executor object without a user-provided constructor, missing standard headers, and a
    headless browser serving a cached `app.js` were each caught and fixed before they reached a commit.
 
