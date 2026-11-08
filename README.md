@@ -1,8 +1,9 @@
 # LumaCore
 
 **[▶ Live 3D demo](https://predragmilovanovic.github.io/LumaCore/)**: a furnished open-plan office
-in your browser. Drag luminaires, desks, chairs or shelves and watch the C++ engine (compiled to
-WebAssembly) recalculate the light, including the shadows of every monitor, chair and plant. Import
+in your browser, lit by calculation: the C++ engine (compiled to WebAssembly) computes the light on
+the floor, the walls and every piece of furniture. Drag luminaires, desks, chairs or shelves and the
+light is recalculated, including the shadows of every monitor, chair and plant. Import
 your own 3D model (`.glb`/`.obj`) and it casts real shadows too. Also try the original office with
 [linear office luminaires](https://predragmilovanovic.github.io/LumaCore/?luminaire=linear_batwing),
 [spotlights](https://predragmilovanovic.github.io/LumaCore/?luminaire=spot_narrow), or load your
@@ -31,7 +32,13 @@ office (14 luminaires, 14,000 points) is recalculated in about 50 ms on one brow
 drag. The panel evaluates the desk working zones against the usual office target (500 lx, U0 ≥ 0.60).
 **[Open the live demo](https://predragmilovanovic.github.io/LumaCore/)** · details: [docs/web.md](docs/web.md).
 
-![LumaCore Web: furnished office, light appearance view](docs/images/web_furnished_appearance.png)
+![LumaCore Web: the whole room lit by the computed light](docs/images/web_room_appearance.png)
+
+*Whole-room view: the brightness of every floor, wall and furniture point is the C++ engine's
+direct illuminance at that point (E = I cos θ / r² with shadow rays), times the surface colour.
+Shadows under the desks, chairs and plants are calculated, not drawn by the graphics library.*
+
+![LumaCore Web: work plane, light appearance view](docs/images/web_furnished_appearance.png)
 
 ![LumaCore Web: the same office with the lux map](docs/images/web_furnished_lux.png)
 

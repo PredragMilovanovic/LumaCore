@@ -25,7 +25,9 @@
 #include <cmath>
 #include <cstddef>
 #include <exception>
+#include <limits>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -178,26 +180,7 @@ public:
             if (nx <= 0 || ny <= 0) {
                 throw std::invalid_argument("nx and ny must be > 0");
             }
-            double build_ms = 0.0;
-            if (dirty_) {
-                const auto start = std::chrono::steady_clock::now();
-                rebuild_geometry();
-                build_ms = std::chrono::duration<double, std::milli>(
-                               std::chrono::steady_clock::now() - start).count();
-            }
-            scene_.clear_lights();
-            for (const LightSpec& l : lights_) {
-                if (l.photometry_id < 0) {
-                    scene_.add_light(lc::PointLight(l.position, l.intensity_cd));
-                } else {
-                    if (find_photometry(l.photometry_id) == nullptr) {
-                        throw std::invalid_argument("unknown photometry id");
-                    }
-                    scene_.add_light(lc::PointLight(
-                        l.position, photometries_[static_cast<std::size_t>(l.photometry_id)],
-                        l.rotation_deg, l.dimming));
-                }
-            }
+            const double build_ms = prepare_scene();
             const lc::MeasurementGrid grid = lc::MeasurementGrid::horizontal(
                 x0, y0, x1, y1, z, static_cast<std::size_t>(nx), static_cast<std::size_t>(ny));
 
@@ -227,7 +210,65 @@ public:
         return out;
     }
 
+    /// Direct illuminance [lx] at arbitrary surface points: `points` and `normals` are flat
+    /// arrays [x, y, z, ...] (normals need not be unit length). Same physics as the work plane
+    /// (illuminance_at: E = I cos θ / r², shadow rays through the BVH), for walls, floor and
+    /// furniture. A zero normal gives NaN. Returns { ok, error, lux (Float64Array view, valid
+    /// until the next call), elapsedMs }.
+    val evaluatePoints(const val& points, const val& normals, bool shadows) {
+        val out = val::object();
+        try {
+            const std::vector<double> p = emscripten::convertJSArrayToNumberVector<double>(points);
+            const std::vector<double> n = emscripten::convertJSArrayToNumberVector<double>(normals);
+            if (p.size() != n.size() || p.size() % 3 != 0) {
+                throw std::invalid_argument("points and normals must be flat xyz arrays of equal length");
+            }
+            prepare_scene();
+            const auto start = std::chrono::steady_clock::now();
+            surface_.assign(p.size() / 3, 0.0);
+            for (std::size_t k = 0; k < surface_.size(); ++k) {
+                const std::optional<lc::Vec3> unit = lc::normalized({n[3 * k], n[3 * k + 1], n[3 * k + 2]});
+                surface_[k] = unit ? lc::illuminance_at(scene_, {p[3 * k], p[3 * k + 1], p[3 * k + 2]}, *unit, shadows)
+                                   : std::numeric_limits<double>::quiet_NaN();
+            }
+            out.set("ok", true);
+            out.set("elapsedMs", std::chrono::duration<double, std::milli>(
+                                     std::chrono::steady_clock::now() - start).count());
+            out.set("lux", val(emscripten::typed_memory_view(surface_.size(), surface_.data())));
+        } catch (const std::exception& e) {
+            out.set("ok", false);
+            out.set("error", std::string(e.what()));
+        }
+        return out;
+    }
+
 private:
+    /// Rebuilds geometry and its BVH if it changed, then replaces the lights. Returns the
+    /// geometry build time in ms (0 if nothing changed).
+    double prepare_scene() {
+        double build_ms = 0.0;
+        if (dirty_) {
+            const auto start = std::chrono::steady_clock::now();
+            rebuild_geometry();
+            build_ms = std::chrono::duration<double, std::milli>(
+                           std::chrono::steady_clock::now() - start).count();
+        }
+        scene_.clear_lights();
+        for (const LightSpec& l : lights_) {
+            if (l.photometry_id < 0) {
+                scene_.add_light(lc::PointLight(l.position, l.intensity_cd));
+            } else {
+                if (find_photometry(l.photometry_id) == nullptr) {
+                    throw std::invalid_argument("unknown photometry id");
+                }
+                scene_.add_light(lc::PointLight(
+                    l.position, photometries_[static_cast<std::size_t>(l.photometry_id)],
+                    l.rotation_deg, l.dimming));
+            }
+        }
+        return build_ms;
+    }
+
     void rebuild_geometry() {
         lc::Scene scene;
         if (has_room_) {
@@ -265,6 +306,7 @@ private:
     lc::Scene scene_;
     bool dirty_ = true;
     std::vector<double> lux_;
+    std::vector<double> surface_;
 };
 
 std::string version() { return lc::version_string(); }
@@ -288,6 +330,7 @@ EMSCRIPTEN_BINDINGS(lumacore) {
         .function("lastError", &Engine::lastError)
         .function("photometryInfo", &Engine::photometryInfo)
         .function("polarCurve", &Engine::polarCurve)
-        .function("simulate", &Engine::simulate);
+        .function("simulate", &Engine::simulate)
+        .function("evaluatePoints", &Engine::evaluatePoints);
     emscripten::function("version", &version);
 }

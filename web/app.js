@@ -6,6 +6,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import createLumaCore from './lumacore.js';
 import { CATALOG, itemGeometry, placePoints, placedSolid } from './furniture.js';
+import { tessellate, flatNormals, evaluationPoints, uniqueVertices } from './surfaces.js';
 
 // ---- Constants ----------------------------------------------------------------------------
 
@@ -137,9 +138,12 @@ const state = {
   workplane: 0.75,
   cell: 0.05,
   shadows: true,
-  view: 'lux',
+  view: 'room-appearance', // 'room-appearance' | 'room-lux' | 'appearance' | 'lux'
   scaleMax: 600, // colour scale top [lx]; grows if exceeded, never jumps while dragging
 };
+const VIEWS = ['room-appearance', 'room-lux', 'appearance', 'lux'];
+const isRoomView = () => state.view.startsWith('room');
+const isAppearance = () => state.view.endsWith('appearance');
 
 function loadScene(name) {
   Object.assign(state, (SCENES[name] ?? furnishedScene)(), {
@@ -220,8 +224,9 @@ function fitToRoom() {
 
 let last = null;   // latest successful run: { ..., lux: Float64Array, grid }
 let notice = '';   // persistent message (e.g. an unreadable share link), shown after each run
-let geometryDirty = true;
-const markGeometry = () => { geometryDirty = true; };
+let geometryDirty = true;  // engine geometry must be re-sent
+let litDirty = true;       // whole-room surface meshes must be rebuilt
+const markGeometry = () => { geometryDirty = true; litDirty = true; };
 
 function gridSpec() {
   const { width, depth } = state.room;
@@ -272,6 +277,14 @@ function compute() {
   showStats();
   requestRender();
   document.body.dataset.avgLux = r.avgLux.toFixed(3); // for automated checks
+  if (isRoomView()) scheduleSurfaces();
+}
+
+/// sRGB bytes for an illuminance, in the current view's colour scale.
+function luxToRgb(e) {
+  if (Number.isNaN(e)) return NOT_MEASURED;
+  if (isAppearance()) return rampColor(APPEARANCE_RGB, Math.pow(1 - Math.exp(-e / (0.45 * state.scaleMax)), 0.85));
+  return rampColor(RAMP_RGB, e / state.scaleMax);
 }
 
 let pending = false;
@@ -356,6 +369,7 @@ function buildRoom() {
   sideWall.position.set(width, depth / 2, height / 2);
   const outline = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(width, depth, height)), outlineMat);
   outline.position.set(width / 2, depth / 2, height / 2);
+  for (const surface of [floor, backWall, sideWall]) surface.userData.surface = true; // replaced in whole-room views
   roomGroup.add(floor, backWall, sideWall, outline);
 }
 
@@ -416,8 +430,12 @@ function furnitureGeometry(type) {
   return geo;
 }
 
+const selectionGroup = new THREE.Group(); // selection outline, visible in every view
+scene.add(selectionGroup);
+
 function buildFurniture() {
   for (const child of [...furnitureGroup.children]) furnitureGroup.remove(child); // geometries are shared
+  disposeChildren(selectionGroup);
   furnitureObjects = state.furniture.map((item, index) => {
     const group = new THREE.Group();
     group.position.set(item.x, item.y, 0);
@@ -430,7 +448,8 @@ function buildFurniture() {
     group.traverse((o) => { o.userData.pick = { kind: 'furniture', index }; });
     furnitureGroup.add(group);
     if (state.sel?.kind === 'furniture' && state.sel.index === index) {
-      furnitureGroup.add(new THREE.BoxHelper(group, 0xeb6834));
+      group.updateMatrixWorld(true);
+      selectionGroup.add(new THREE.BoxHelper(group, 0xeb6834));
     }
     return group;
   });
@@ -465,16 +484,11 @@ function paintHeatmap() {
   const g = last.grid;
   ensureHeatmap(g);
   heat.mesh.position.set((g.x0 + g.x1) / 2, (g.y0 + g.y1) / 2, state.workplane + 0.003);
-  const appearance = state.view === 'appearance';
   const img = heat.ctx.createImageData(g.nx, g.ny);
   for (let j = 0; j < g.ny; ++j) {
     const row = g.ny - 1 - j; // canvas row 0 is the top = largest y
     for (let i = 0; i < g.nx; ++i) {
-      const e = last.lux[j * g.nx + i];
-      let rgb;
-      if (Number.isNaN(e)) rgb = NOT_MEASURED;
-      else if (appearance) rgb = rampColor(APPEARANCE_RGB, Math.pow(1 - Math.exp(-e / (0.45 * state.scaleMax)), 0.85));
-      else rgb = rampColor(RAMP_RGB, e / state.scaleMax);
+      const rgb = luxToRgb(last.lux[j * g.nx + i]);
       const p = 4 * (row * g.nx + i);
       img.data[p] = rgb[0];
       img.data[p + 1] = rgb[1];
@@ -485,6 +499,178 @@ function paintHeatmap() {
   heat.ctx.putImageData(img, 0, 0);
   heat.texture.needsUpdate = true;
   updateLegend();
+  applyViewVisibility();
+}
+
+// ---- Whole room: computed light on floor, walls and every object --------------------------
+
+const litGroup = new THREE.Group();
+scene.add(litGroup);
+const litMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, side: THREE.DoubleSide });
+// Patch: { geometry, points, normals (unique evaluation vertices), index (drawn vertex -> unique
+// vertex), albedo (linear RGB reflectance colour per drawn vertex) }
+let litPatches = [];
+let surfaceInfo = '';
+let liveWhileDragging = false; // the live work plane is shown while something is dragged
+const SURFACE_EDGE = 0.15;     // m: furniture faces are split to this size
+const SURFACE_GRID = 0.12;     // m: floor and wall grid spacing
+const SURFACE_CHUNK = 25000;   // points per engine call; the page stays responsive between calls
+const ALBEDO = { floor: 0xd8d0c2, wall: 0xf1efe9, obstacle: 0xb4b2ab, model: 0xbdbdbd };
+const WARM = [1.0, 0.96, 0.88];
+
+const linearRgb = (hex) => { const c = new THREE.Color().setHex(hex); return [c.r, c.g, c.b]; };
+
+function addPatch(geometry, points, normals, index, albedo) {
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(index.length * 3).fill(0.5), 3));
+  litGroup.add(new THREE.Mesh(geometry, litMat));
+  litPatches.push({ geometry, points, normals, index, albedo });
+}
+
+/// Triangles in world coordinates (flat non-indexed) with one sRGB colour per triangle (or one for
+/// all) -> tessellated patch; shared vertices are evaluated once.
+function addTrianglePatch(world, colors, solid = null) {
+  const big = world.length / 9 > 60000; // big imported models are finely tessellated already
+  const perTriangle = Array.isArray(colors);
+  const tess = big ? world : tessellate(world, SURFACE_EDGE, 9, perTriangle ? colors : null);
+  const triColors = perTriangle ? (big ? colors : tessellate.lastColors) : null;
+  const normals = flatNormals(tess);
+  const unique = uniqueVertices(evaluationPoints(tess, normals, solid), normals);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(Float32Array.from(tess), 3));
+  const vertices = tess.length / 3;
+  const albedo = new Float32Array(vertices * 3);
+  const cache = new Map();
+  for (let v = 0; v < vertices; ++v) {
+    const hex = perTriangle ? triColors[Math.floor(v / 3)] : colors;
+    if (!cache.has(hex)) cache.set(hex, linearRgb(hex));
+    albedo.set(cache.get(hex), v * 3);
+  }
+  addPatch(geometry, unique.points, unique.normals, unique.index, albedo);
+}
+
+/// A flat rectangle as an indexed grid: one evaluation per vertex, smoothly interpolated.
+function addGridPatch(width, height, transform, hex) {
+  const geometry = new THREE.PlaneGeometry(width, height,
+    Math.max(1, Math.round(width / SURFACE_GRID)), Math.max(1, Math.round(height / SURFACE_GRID)));
+  geometry.applyMatrix4(transform);
+  const normals = Float64Array.from(geometry.attributes.normal.array);
+  const points = evaluationPoints(Float64Array.from(geometry.attributes.position.array), normals);
+  const count = points.length / 3;
+  const index = Uint32Array.from({ length: count }, (_, k) => k);
+  const albedo = new Float32Array(count * 3);
+  const rgb = linearRgb(hex);
+  for (let k = 0; k < count; ++k) albedo.set(rgb, k * 3);
+  addPatch(geometry, points, normals, index, albedo);
+}
+
+function buildLit() {
+  disposeChildren(litGroup);
+  litPatches = [];
+  const { width, depth, height } = state.room;
+  const T = (x, y, z) => new THREE.Matrix4().makeTranslation(x, y, z);
+  addGridPatch(width, depth, T(width / 2, depth / 2, 0), ALBEDO.floor);                         // floor, facing +z
+  addGridPatch(width, height, T(width / 2, depth, height / 2)
+    .multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2)), ALBEDO.wall);                     // back wall, facing -y
+  addGridPatch(depth, height, T(width, depth / 2, height / 2)
+    .multiply(new THREE.Matrix4().makeRotationZ(-Math.PI / 2))
+    .multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2)), ALBEDO.wall);                     // side wall, facing -x
+  for (const mesh of obstacleMeshes) {
+    mesh.updateMatrixWorld(true);
+    const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
+    g.applyMatrix4(mesh.matrixWorld);
+    addTrianglePatch(Float64Array.from(g.attributes.position.array), ALBEDO.obstacle);
+    g.dispose();
+  }
+  for (const item of state.furniture) {
+    const isModel = item.type === 'model';
+    const local = isModel ? models.get(item.modelId).local : itemGeometry(item.type).positions;
+    const colors = isModel ? ALBEDO.model : itemGeometry(item.type).colors;
+    const solid = isSolidItem(item) ? placedSolid(CATALOG[item.type].solid, item.x, item.y, item.rotation) : null;
+    addTrianglePatch(placePoints(local, item.x, item.y, item.rotation), colors, solid);
+  }
+  litDirty = false;
+}
+
+/// Linear RGB for a surface: lux mode = the false-colour scale; light appearance = the surface
+/// colour times its tone-mapped illuminance (a matte surface looks as bright as ρ·E/π).
+function surfaceColor(e, albedo, k) {
+  if (Number.isNaN(e)) return linearRgb((NOT_MEASURED[0] << 16) | (NOT_MEASURED[1] << 8) | NOT_MEASURED[2]);
+  if (!isAppearance()) {
+    const [r, g, b] = luxToRgb(e);
+    return linearRgb((r << 16) | (g << 8) | b);
+  }
+  const tone = 1.35 * Math.pow(1 - Math.exp(-e / (0.45 * state.scaleMax)), 0.85);
+  return [0, 1, 2].map((c) => Math.min(1, albedo[k + c] * tone * WARM[c]));
+}
+
+let surfaceGeneration = 0;
+
+/// Evaluates every surface point with the C++ engine (in chunks, so the page stays responsive;
+/// a newer request or a drag cancels this one) and colours the meshes.
+async function computeSurfaces() {
+  if (!isRoomView() || !last) return;
+  if (drag) { scheduleSurfaces(); return; }
+  const generation = ++surfaceGeneration;
+  if (litDirty) buildLit();
+  if (geometryDirty) syncGeometry();
+  const total = litPatches.reduce((s, p) => s + p.points.length / 3, 0);
+  const points = new Float64Array(total * 3), normals = new Float64Array(total * 3);
+  let offset = 0;
+  for (const p of litPatches) {
+    points.set(p.points, offset * 3);
+    normals.set(p.normals, offset * 3);
+    offset += p.points.length / 3;
+  }
+  const lux = new Float64Array(total);
+  let engineMs = 0;
+  for (let start = 0; start < total; start += SURFACE_CHUNK) {
+    const end = Math.min(total, start + SURFACE_CHUNK);
+    const r = engine.evaluatePoints(points.subarray(start * 3, end * 3), normals.subarray(start * 3, end * 3), state.shadows);
+    if (!r.ok) {
+      $('error').textContent = `Engine error: ${r.error}`;
+      return;
+    }
+    lux.set(r.lux, start);
+    engineMs += r.elapsedMs;
+    if (end < total) {
+      surfaceInfo = `whole room: computing ${Math.round((100 * end) / total)} %…`;
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      if (generation !== surfaceGeneration || drag) return; // superseded
+    }
+  }
+  offset = 0;
+  for (const p of litPatches) {
+    const attr = p.geometry.attributes.color;
+    for (let v = 0; v < p.index.length; ++v) {
+      const [r, g, b] = surfaceColor(lux[offset + p.index[v]], p.albedo, v * 3);
+      attr.setXYZ(v, r, g, b);
+    }
+    attr.needsUpdate = true;
+    offset += p.points.length / 3;
+  }
+  surfaceInfo = `whole room: ${fmt(total)} surface points computed in ${fmt(engineMs, 0)} ms`;
+  document.body.dataset.surfaces = String(total); // for automated checks
+  liveWhileDragging = false;
+  showStats();
+  applyViewVisibility();
+}
+
+let surfaceTimer = null;
+function scheduleSurfaces(delay = 120) {
+  clearTimeout(surfaceTimer);
+  surfaceTimer = setTimeout(computeSurfaces, delay);
+}
+
+/// Whole-room views show the computed surfaces; the work-plane views (and any drag, which needs
+/// live feedback) show the work-plane map with the normally shaded furniture.
+function applyViewVisibility() {
+  const room = isRoomView() && !liveWhileDragging && !litDirty;
+  litGroup.visible = room;
+  furnitureGroup.visible = !room;
+  obstacleGroup.visible = !room;
+  for (const child of roomGroup.children) if (child.userData.surface) child.visible = !room;
+  if (heat) heat.mesh.visible = !room;
+  requestRender();
 }
 
 // Lamps: a luminaire body with its real size from the .ldt file (box or disc, emitting
@@ -623,6 +809,10 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
   buildObstacles();
   buildFurniture();
   rebuildLamps();
+  if (isRoomView()) { // live feedback while dragging; the whole room is recomputed on release
+    liveWhileDragging = true;
+    applyViewVisibility();
+  }
   renderer.domElement.setPointerCapture(e.pointerId);
   renderer.domElement.style.cursor = 'grabbing';
 }, { capture: true });
@@ -666,7 +856,7 @@ renderer.domElement.addEventListener('pointermove', (e) => {
     const i = Math.min(g.nx - 1, Math.floor(hit.uv.x * g.nx));
     const j = Math.min(g.ny - 1, Math.floor(hit.uv.y * g.ny));
     const lux = last.lux[j * g.nx + i];
-    tip.textContent = `x ${hit.point.x.toFixed(2)} m, y ${hit.point.y.toFixed(2)} m: ` +
+    tip.textContent = `work plane at x ${hit.point.x.toFixed(2)} m, y ${hit.point.y.toFixed(2)} m: ` +
       (Number.isNaN(lux) ? 'inside an obstacle' : `${lux.toFixed(0)} lx`);
     tip.style.left = `${e.clientX + 14}px`;
     tip.style.top = `${e.clientY + 14}px`;
@@ -681,6 +871,7 @@ function endDrag(e) {
   drag = null;
   if (renderer.domElement.hasPointerCapture(e.pointerId)) renderer.domElement.releasePointerCapture(e.pointerId);
   renderer.domElement.style.cursor = '';
+  if (isRoomView()) scheduleSurfaces(0);
 }
 renderer.domElement.addEventListener('pointerup', endDrag);
 renderer.domElement.addEventListener('pointercancel', endDrag);
@@ -784,7 +975,7 @@ function showStats() {
     `${fmt(total)} points (${fmt(total - last.validPoints)} inside obstacles) · ` +
     `${state.lamps.length} luminaires · ${fmt(last.triangles)} shadow triangles · ` +
     `computed in ${fmt(last.elapsedMs, 1)} ms` + (last.buildMs > 0 ? ` (+${fmt(last.buildMs, 1)} ms BVH)` : '') +
-    ' · WebAssembly, 1 thread';
+    ' · WebAssembly, 1 thread' + (isRoomView() && surfaceInfo ? ` · ${surfaceInfo}` : '');
 }
 
 // Task areas: the surfaces where the visual task happens (desk tops, the meeting table). EN 12464-1
@@ -848,7 +1039,7 @@ function showTaskVerdict(task) {
 }
 
 function updateLegend() {
-  const appearance = state.view === 'appearance';
+  const appearance = isAppearance();
   $('legend-bar').classList.toggle('appearance', appearance);
   $('legend-bar').style.background = appearance ? '' : `linear-gradient(to right, ${RAMP.join(', ')})`;
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((t) => `<span>${fmt(t * state.scaleMax)}</span>`);
@@ -1085,9 +1276,10 @@ $('wp').addEventListener('input', (e) => {
 $('cell').addEventListener('change', (e) => { state.cell = Number(e.target.value); scheduleCompute(); });
 $('shadows').addEventListener('change', (e) => { state.shadows = e.target.checked; scheduleCompute(); });
 $('view-mode').addEventListener('change', (e) => {
-  state.view = e.target.value;
+  state.view = VIEWS.includes(e.target.value) ? e.target.value : 'room-appearance';
   if (last) paintHeatmap();
-  requestRender();
+  if (isRoomView()) scheduleSurfaces(0);
+  showStats();
 });
 $('preset').addEventListener('change', (e) => {
   loadScene(e.target.value);
@@ -1216,7 +1408,7 @@ function decodeDesign(hash) {
   state.workplane = num(design.wp, 0.75);
   state.cell = [0.1, 0.05, 0.025].includes(design.cell) ? design.cell : 0.05;
   state.shadows = design.sh !== 0;
-  state.view = design.view === 'appearance' ? 'appearance' : 'lux';
+  state.view = VIEWS.includes(design.view) ? design.view : 'room-appearance';
   state.lamps = (design.lamps ?? []).slice(0, 100).map(([x, y, key, cd, dimming, rotation]) => newLamp(num(x, 1), num(y, 1), {
     lum: idByKey[key] ?? ISOTROPIC,
     cd: clamp(num(cd, 800), 0, 100000),
@@ -1275,7 +1467,7 @@ try {
   notice = `Could not read the share link (${err.message}); showing the default scene.`;
   loadScene(params.get('preset') ?? 'furnished');
 }
-if (params.get('view') === 'appearance') state.view = 'appearance';
+if (VIEWS.includes(params.get('view'))) state.view = params.get('view');
 if (params.get('luminaire') in idByKey) {
   const lum = idByKey[params.get('luminaire')];
   const rotation = clamp(num(params.get('rotation'), 0), 0, 180);

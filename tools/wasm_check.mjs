@@ -31,6 +31,19 @@ console.log(`LumaCore WebAssembly engine ${lc.version()}`);
   engine.delete();
 }
 
+// 1b. Light on an arbitrary surface (a wall): E = I (n . l) / r^3, with the same engine.
+{
+  const engine = new lc.Engine();
+  engine.addLight(2, 2, 2.75, 1000);
+  // Wall point (4, 2, 1.5) facing -x: l = (-2, 0, 1.25), r^2 = 5.5625, n . l = 2.
+  const r = engine.evaluatePoints(new Float64Array([4, 2, 1.5, 4, 2, 1.5]), new Float64Array([-1, 0, 0, 0, 0, 0]), true);
+  const expected = 1000 * 2 / (5.5625 * Math.sqrt(5.5625));
+  check('wall point E = I cos θ / r² (evaluatePoints)', r.ok && Math.abs(r.lux[0] - expected) < 1e-12 * expected,
+    r.ok ? `got ${r.lux[0]}, expected ${expected}` : r.error);
+  check('zero normal gives NaN', r.ok && Number.isNaN(r.lux[1]));
+  engine.delete();
+}
+
 // 2. Errors become values, not exceptions.
 {
   const engine = new lc.Engine();

@@ -74,8 +74,27 @@ behind it onto the keyboard area. The chosen layout reaches 564 lx and U0 0.53 o
 uniformity misses the target, and the panel says so. The model is pessimistic: without inter-reflections
 and with hard shadows, a real room would be more uniform.
 
-**Light appearance** view: the work plane is shaded from dark to warm white by illuminance, as the
-lit surface would look, instead of the false-colour lux scale.
+**Views.** *Work plane* views colour only the 0.75 m calculation surface (lux scale, or dark to warm
+white). *Whole room* views (the default) colour every surface by its computed light:
+
+- The engine's `evaluatePoints()` returns the direct illuminance at any point with any surface
+  direction, using the same `illuminance_at()` as the work plane (checked in `tools/wasm_check.mjs`
+  against E = I cos θ / r² on a wall point, to the last digit).
+- Floor and the two far walls are 12 cm grids; furniture faces are split into triangles of at most
+  15 cm, so shadows across a desk top are visible. Points shared by several small triangles are
+  evaluated once (225,391 → 46,446 points for the furnished office, about 0.45 s at the measured
+  9.6 µs per point), in chunks of 25,000, so the page never freezes; a newer request cancels an
+  older one.
+- Evaluation points sit 2 mm in front of the surface, so a ray from a corner does not hit the
+  neighbouring face of the same object. Points inside a solid item (the books inside a bookshelf,
+  which the engine treats as one block) are moved along their normal to the item's outer shell.
+- *Light appearance* shows each surface's own colour times its tone-mapped illuminance: a matte
+  surface's luminance is ρ·E/π, so a red book stays red and gets darker in shadow. *Lux* shows the
+  false-colour scale on every surface.
+- While something is dragged, the live work-plane view is shown; the whole room is recomputed when
+  it is released.
+- Expected with direct light only: the top of the walls (above the luminaires) and the ceiling are
+  dark, because these luminaires emit nothing upward and no light is reflected.
 
 **Rendering on demand.** The 3D view is redrawn only when something changes (camera, objects,
 results), not 60 times per second, which saves CPU and battery and lets headless tests finish.

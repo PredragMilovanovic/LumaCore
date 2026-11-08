@@ -17,6 +17,7 @@ each was resolved. Every milestone ended only when its acceptance criteria (in
 | M7a Web | engine compiled to WebAssembly (Emscripten), interactive 3D front end (three.js/WebGL) | WebAssembly = native exactly; headless-browser screenshot |
 | M7b Photometry | EULUMDAT reader (5 symmetry types), luminaire rotation and dimming, `--ldt` in the CLI, luminaire choice, `.ldt` upload and polar diagram on the web | 115 tests; sample flux = lamp flux × LOR within 0.1 %; web averages = CLI |
 | M7c Editable room | move/resize/add obstacles, room size, CSV and PNG export, share links with the whole design | headless tests: default office, a share link equal to the native `single` scenario, luminaire links, damaged links |
+| M7e Light on all surfaces | engine `evaluatePoints()` for any point and direction; floor, walls and furniture coloured by computed light (lux or reflectance × illuminance); chunked, cancellable evaluation | wall point = closed form to the last digit; 225k → 46k points by merging shared vertices |
 | M7d Realistic scenes | `TriangleBvh` (bounding volume hierarchy) for occlusion; furnished office from procedural furniture; 3D model import; luminaires at their real size; task-area evaluation; light-appearance view; render on demand | 121 C++ tests; BVH bit-identical to brute force; 159× at 12k, 274× at 48k triangles |
 
 ## Problems found and how they were solved
@@ -90,7 +91,13 @@ These came from checking results against expectations, not from the compiler.
     second; in software rendering that never let the virtual clock finish. The view now renders on
     demand, which is also better for real users' CPU and battery.
 
-13. **Smaller issues caught before committing.**
+13. **The first whole-room version took 2.2 s per update (M7e).** It evaluated 225,391 points: every
+    small triangle evaluated its own three corners, although neighbours share them. Merging points
+    with the same position and normal gave 46,446 points (4.8× fewer) for the same picture, and
+    chunked evaluation keeps the page responsive. Measured, not estimated: 9.6 µs per point in
+    WebAssembly for this scene.
+
+14. **Smaller issues caught before committing.**
    A `const` executor object without a user-provided constructor, missing standard headers, and a
    headless browser serving a cached `app.js` were each caught and fixed before they reached a commit.
 
